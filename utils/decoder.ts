@@ -1,4 +1,3 @@
-
 import { DBCSignal } from '../types.ts';
 
 /**
@@ -23,14 +22,21 @@ export function normalizeId(id: string | number | undefined, forceHex: boolean =
   if (typeof id === 'number') {
     numericId = BigInt(id);
   } else {
-    let str = id.trim();
-    const upperStr = str.toUpperCase();
-
-    if (upperStr.startsWith('0X')) {
+    // Clean string: remove 0x, h suffix, and trim
+    let str = id.trim().toUpperCase();
+    if (str.endsWith('H')) {
+      str = str.substring(0, str.length - 1);
+      numericId = BigInt('0x' + str);
+    } else if (str.startsWith('0X')) {
       numericId = BigInt('0x' + str.substring(2));
     } else if (forceHex) {
       // For hardware bus data, always assume Hex even if it looks decimal
-      numericId = BigInt('0x' + str);
+      try {
+        numericId = BigInt('0x' + str);
+      } catch (e) {
+        // Fallback for non-hex characters if any
+        return str;
+      }
     } else if (/^\d+$/.test(str)) {
       // For DBC/Library keys, if it's all digits, it's usually Decimal
       numericId = BigInt(str);
@@ -39,7 +45,7 @@ export function normalizeId(id: string | number | undefined, forceHex: boolean =
       try {
         numericId = BigInt('0x' + str);
       } catch (e) {
-        return upperStr;
+        return str;
       }
     }
   }
@@ -68,6 +74,7 @@ export function formatIdForDisplay(id: string): string {
 }
 
 export function decodeSignal(data: string[], signal: DBCSignal): string {
+  if (!data || !signal) return "---";
   try {
     const bytes = data.map(hex => parseInt(hex, 16));
     let rawValue = 0n;
@@ -125,7 +132,6 @@ export function decodeSignal(data: string[], signal: DBCSignal): string {
 }
 
 export function decToHex(decId: string | number): string {
-  // Pass false to forceHex because DBC keys are decimal strings
   const hex = normalizeId(decId, false);
   return `0x${formatIdForDisplay(hex)}`;
 }

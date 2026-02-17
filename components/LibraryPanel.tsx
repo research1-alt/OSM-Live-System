@@ -1,6 +1,6 @@
 
 import React, { useState, useRef, useMemo, useEffect } from 'react';
-import { Database, Plus, Trash2, RefreshCw, Box, Settings2, ArrowUpToLine, ArrowDownToLine, Zap, Activity, Info, Lock, Unlock, Hash, ShieldAlert, AlertTriangle, ShieldCheck } from 'lucide-react';
+import { Database, Plus, Trash2, RefreshCw, Box, Settings2, ArrowUpToLine, ArrowDownToLine, Zap, Activity, Info, Lock, Unlock, Hash, ShieldAlert, AlertTriangle, ShieldCheck, Save, Loader2 } from 'lucide-react';
 import { ConversionLibrary, DBCMessage, DBCSignal, CANFrame } from '../types.ts';
 import { MY_CUSTOM_DBC } from '../data/dbcProfiles.ts';
 import { decToHex, normalizeId, decodeSignal, cleanMessageName } from '../utils/decoder.ts';
@@ -9,11 +9,13 @@ interface LibraryPanelProps {
   library: ConversionLibrary;
   onUpdateLibrary: (lib: ConversionLibrary) => void;
   latestFrames: Record<string, CANFrame>;
+  onSaveDecoded?: () => void;
+  isSavingDecoded?: boolean;
 }
 
 const FAULT_IDS = ["2419654480", "2553303104"];
 
-const LibraryPanel: React.FC<LibraryPanelProps> = ({ library, onUpdateLibrary, latestFrames }) => {
+const LibraryPanel: React.FC<LibraryPanelProps> = ({ library, onUpdateLibrary, latestFrames, onSaveDecoded, isSavingDecoded = false }) => {
   const [syncing, setSyncing] = useState(false);
   const [isLocked, setIsLocked] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -30,7 +32,7 @@ const LibraryPanel: React.FC<LibraryPanelProps> = ({ library, onUpdateLibrary, l
 
       const isFaultMessage = FAULT_IDS.includes(decId);
       if (isFaultMessage) {
-        const hasActiveError = Object.values(message.signals).some(sig => {
+        const hasActiveError = (Object.values(message.signals) as DBCSignal[]).some(sig => {
           const val = decodeSignal(latestFrame.data, sig);
           return val.trim().startsWith('1');
         });
@@ -39,7 +41,7 @@ const LibraryPanel: React.FC<LibraryPanelProps> = ({ library, onUpdateLibrary, l
 
       const cleanName = cleanMessageName(message.name);
       const nameMatches = cleanName.toLowerCase().includes(searchLower);
-      const hasMatchingSignal = Object.values(message.signals).some(sig => 
+      const hasMatchingSignal = (Object.values(message.signals) as DBCSignal[]).some(sig => 
         sig.name.toLowerCase().includes(searchLower)
       );
       
@@ -72,39 +74,52 @@ const LibraryPanel: React.FC<LibraryPanelProps> = ({ library, onUpdateLibrary, l
 
   return (
     <div className="flex flex-col h-full bg-white rounded-xl overflow-hidden border border-slate-200 shadow-xl relative">
-      <div className="bg-slate-50/80 backdrop-blur-md px-6 py-4 flex justify-between items-center border-b border-slate-200 shrink-0 z-40">
+      <div className="bg-slate-50/80 backdrop-blur-md px-6 py-4 flex flex-col md:flex-row md:items-center justify-between border-b border-slate-200 shrink-0 z-40 gap-4">
         <div className="flex items-center gap-4">
           <div className="flex items-center gap-2 px-3 py-1 bg-indigo-600 text-white rounded shadow-md text-[9px] font-orbitron font-black">
             <Database size={12} /> TELEMETRY_MATRIX
           </div>
           
-          <div className="h-6 w-[1px] bg-slate-200 mx-2"></div>
+          <div className="hidden md:block h-6 w-[1px] bg-slate-200 mx-2"></div>
           
-          <div className="relative">
+          <div className="relative flex-1 md:flex-none">
             <input 
               type="text" 
               placeholder="SEARCH_LOGIC..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="bg-white border border-slate-200 rounded-lg px-3 py-1.5 text-[10px] font-mono text-slate-800 placeholder:text-slate-300 focus:outline-none focus:border-indigo-500/50 w-64 uppercase tracking-widest transition-all"
+              className="w-full bg-white border border-slate-200 rounded-lg px-3 py-1.5 text-[10px] font-mono text-slate-800 placeholder:text-slate-300 focus:outline-none focus:border-indigo-500/50 md:w-64 uppercase tracking-widest transition-all"
             />
           </div>
         </div>
         
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 overflow-x-auto no-scrollbar pb-1 md:pb-0">
+          <button 
+            onClick={onSaveDecoded}
+            disabled={isSavingDecoded}
+            className={`flex items-center gap-2 px-4 py-1.5 rounded-lg text-[8px] font-orbitron font-black uppercase transition-all border shadow-sm shrink-0 ${
+              isSavingDecoded 
+                ? 'bg-indigo-600 text-white border-indigo-700 animate-pulse' 
+                : 'bg-white border-slate-200 text-slate-600 hover:border-emerald-500/50 hover:text-emerald-600'
+            } disabled:opacity-30 disabled:cursor-not-allowed`}
+          >
+            {isSavingDecoded ? <Loader2 size={10} className="animate-spin" /> : <Save size={10} />}
+            {isSavingDecoded ? 'EXPORTING...' : 'SAVE_DECODED'}
+          </button>
+
           <button
             onClick={() => setIsLocked(!isLocked)}
-            className={`flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-[8px] font-orbitron font-black uppercase transition-all border shadow-sm ${
+            className={`flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-[8px] font-orbitron font-black uppercase transition-all border shadow-sm shrink-0 ${
               isLocked ? 'bg-indigo-50 border-indigo-200 text-indigo-600' : 'bg-white border-slate-200 text-slate-400'
             }`}
           >
             {isLocked ? <Lock size={10} /> : <Unlock size={10} />}
-            {isLocked ? 'MONITORING_LOCKED' : 'FREE_SCROLL'}
+            {isLocked ? 'LOCKED' : 'FREE'}
           </button>
           
           <button 
             onClick={handleSync}
-            className={`p-2 bg-slate-100 hover:bg-slate-200 rounded-lg border border-slate-200 text-slate-500 transition-all ${syncing ? 'animate-spin' : ''}`}
+            className={`p-2 bg-slate-100 hover:bg-slate-200 rounded-lg border border-slate-200 text-slate-500 transition-all shrink-0 ${syncing ? 'animate-spin' : ''}`}
           >
             <RefreshCw size={14} />
           </button>

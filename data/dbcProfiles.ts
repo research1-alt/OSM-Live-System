@@ -6,6 +6,13 @@ import { DBCDatabase } from '../types.ts';
  * Endianness: Intel (@1) = isLittleEndian: true, Motorola (@0) = isLittleEndian: false
  */
 export const MY_CUSTOM_DBC: DBCDatabase = {
+  "2552758145": { // 0x1827FF81
+    name: "LV_ID_0x1827FF81_Odo_Meter",
+    dlc: 8,
+    signals: {
+      "Vehicle_Odo_Meter": { name: "Vehicle_Odo_Meter", startBit: 32, length: 32, isLittleEndian: true, isSigned: false, scale: 0.1, offset: 0, min: 0, max: 429496729, unit: "km" }
+    }
+  },
   "2419654480": { // 0x1038FF50
     name: "LV_ID_0x1038FF50_BattError",
     dlc: 8,

@@ -1,7 +1,8 @@
 {
-  "name": "OSM Live System",
-  "description": "High-performance CAN bus monitoring and diagnostic tool featuring real-time message visualization and Gemini-powered signal analysis.",
+  "name": "Decoding OSM Live | 16_02_2026",
+  "description": "Completed\n\n",
   "requestFramePermissions": [
-    "serial"
+    "serial",
+    "bluetooth"
   ]
 }

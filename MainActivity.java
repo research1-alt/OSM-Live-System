@@ -73,6 +73,9 @@ public class MainActivity extends AppCompatActivity {
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private boolean isScanning = false;
 
+    // Temporary storage for file data during picker transition
+    private String pendingFileData = "";
+
     private final ActivityResultLauncher<Intent> enableBtLauncher = registerForActivityResult(
             new ActivityResultContracts.StartActivityForResult(),
             result -> {
@@ -82,6 +85,19 @@ public class MainActivity extends AppCompatActivity {
                 } else {
                     sendToJs("ERROR: Bluetooth activation denied.");
                 }
+            }
+    );
+
+    private final ActivityResultLauncher<Intent> createFileLauncher = registerForActivityResult(
+            new ActivityResultContracts.StartActivityForResult(),
+            result -> {
+                if (result.getResultCode() == Activity.RESULT_OK && result.getData() != null) {
+                    Uri uri = result.getData().getData();
+                    if (uri != null) {
+                        writeDataToUri(uri, pendingFileData);
+                    }
+                }
+                pendingFileData = ""; // Clear buffer
             }
     );
 
@@ -142,6 +158,20 @@ public class MainActivity extends AppCompatActivity {
             @Override
             public void onPermissionRequest(PermissionRequest r) { runOnUiThread(() -> r.grant(r.getResources())); }
         });
+    }
+
+    private void writeDataToUri(Uri uri, String data) {
+        try {
+            OutputStream os = getContentResolver().openOutputStream(uri);
+            if (os != null) {
+                os.write(data.getBytes());
+                os.flush();
+                os.close();
+                Toast.makeText(this, "Export Saved Successfully", Toast.LENGTH_SHORT).show();
+            }
+        } catch (Exception e) {
+            sendToJs("FILE_WRITE_ERROR: " + e.getMessage());
+        }
     }
 
     public class NativeBleBridge {
@@ -368,6 +398,18 @@ public class MainActivity extends AppCompatActivity {
                     onSaveComplete(fileName);
                 }
             } catch (Exception e) { sendToJs("FILE_ERROR: " + e.getMessage()); }
+        }
+
+        @JavascriptInterface
+        public void saveFileWithPicker(String data, String fileName, String mimeType) {
+            runOnUiThread(() -> {
+                pendingFileData = data;
+                Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT);
+                intent.addCategory(Intent.CATEGORY_OPENABLE);
+                intent.setType(mimeType);
+                intent.putExtra(Intent.EXTRA_TITLE, fileName);
+                createFileLauncher.launch(intent);
+            });
         }
 
         private void onSaveComplete(String fileName) {

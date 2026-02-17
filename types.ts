@@ -1,4 +1,3 @@
-
 export interface CANFrame {
   id: string; // Hex ID
   dlc: number;
@@ -9,6 +8,14 @@ export interface CANFrame {
   count: number;
   periodMs: number;
   isSimulated?: boolean;
+}
+
+export interface TransmitFrame {
+  id: string;
+  dlc: number;
+  data: string[];
+  periodMs: number;
+  isActive: boolean;
 }
 
 export interface DBCSignal {

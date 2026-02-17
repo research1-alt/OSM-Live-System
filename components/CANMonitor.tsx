@@ -24,6 +24,7 @@ const CANMonitor: React.FC<CANMonitorProps> = ({
   const [timeMode, setTimeMode] = useState<'relative' | 'absolute'>('relative');
   const scrollRef = useRef<HTMLDivElement>(null);
 
+  // HUD optimization: only show most recent 1000 frames for browser performance
   const displayFrames = useMemo(() => {
     if (frames.length <= 1000) return frames;
     return frames.slice(-1000);
@@ -41,33 +42,38 @@ const CANMonitor: React.FC<CANMonitorProps> = ({
     setTimeout(() => setIsResetting(false), 800);
   };
 
-  const headerLine = ";---+--  ---+----  ---+--  ---------+--  -+- +- +- -- -- -- -- -- -- -- --";
+  // EXACT Visual separator from user snippet
+  const headerLine = ";---+-- ------+------ +- --+----- +- +- +- +- -- -- -- -- -- -- --";
 
   const renderClassicHeaders = () => (
     <div className="sticky top-0 bg-white z-20 pt-4 pb-2 select-none font-mono text-[13px] text-slate-400 whitespace-pre border-b border-slate-100">
-      <div className="mb-0.5">;   Message   Time      Type ID              Rx/Tx</div>
-      <div className="mb-0.5">{";   Number    " + (timeMode === 'relative' ? 'Offset    ' : 'System    ') + "|    [hex]           |  Data Length"}</div>
-      <div className="mb-0.5">;   |         [ms]      |    |               |  |  Data [hex] ...</div>
-      <div className="mb-0.5">;   |         |         |    |               |  |  | </div>
+      <div className="mb-0.5">;   Message   Time    Type ID     Rx/Tx</div>
+      <div className="mb-0.5">{";   Number    " + (timeMode === 'relative' ? 'Offset  ' : 'System  ') + "|    [hex]  |  Data Length"}</div>
+      <div className="mb-0.5">;   |         [ms]    |    |      |  |  Data [hex] ...</div>
+      <div className="mb-0.5">;   |         |       |    |      |  |  |</div>
       <div className="text-slate-200">{headerLine}</div>
     </div>
   );
 
   const formatClassicRow = (frame: CANFrame, indexInDisplay: number) => {
     const actualIndex = frames.length > 1000 ? (frames.length - 1000 + indexInDisplay + 1) : (indexInDisplay + 1);
+    
+    // Exact padding from PCAN-View 5.x specification
     const msgNum = actualIndex.toString().padStart(7, ' ');
-    const timeStr = (timeMode === 'relative' ? (frame.timestamp / 1000).toFixed(6) : new Date(frame.absoluteTimestamp).toLocaleTimeString('en-GB', { hour12: false }) + "." + new Date(frame.absoluteTimestamp).getMilliseconds().toString().padStart(3, '0')).padStart(12, ' ');
-    const type = "DT".padStart(6, ' ');
-    const id = frame.id.replace('0x', '').toUpperCase().padStart(12, ' ');
-    const rxtx = frame.direction.padStart(3, ' ');
-    const dlc = frame.dlc.toString().padStart(2, ' ');
+    const timeVal = (frame.timestamp / 1000);
+    const timeStr = (timeMode === 'relative' ? timeVal.toFixed(3) : new Date(frame.absoluteTimestamp).toLocaleTimeString('en-GB', { hour12: false })).padStart(13, ' ');
+    const type = "DT";
+    const id = frame.id.replace('0x', '').toUpperCase().padStart(8, ' ');
+    const rxtx = frame.direction.padStart(2, ' ');
+    const dlc = frame.dlc.toString().padStart(1, ' ');
     const dataBytes = frame.data.map(d => d.padStart(2, '0')).join(' ');
 
+    // EXACT SPACING STRING:
+    // No leading space. 
+    // Format: msgNum(7) + ' ' + timeStr(13) + ' ' + type(2) + ' ' + id(8) + ' ' + rxtx(2) + ' ' + dlc(1) + '  ' + dataBytes
     return (
       <div key={`${frame.absoluteTimestamp}-${actualIndex}`} className="flex hover:bg-slate-50 transition-colors leading-tight h-5 items-center font-mono text-[13px] text-slate-800 whitespace-pre">
-        <span>{" " + msgNum + "  " + timeStr + "  " + type + "  "}</span>
-        <span className="text-indigo-600 font-bold">{id}</span>
-        <span>{"  " + rxtx + " " + dlc + " "}</span>
+        <span>{msgNum + " " + timeStr + " " + type + " " + id + " " + rxtx + " " + dlc + "  "}</span>
         <span className="text-emerald-600">{dataBytes}</span>
       </div>
     );
@@ -78,7 +84,7 @@ const CANMonitor: React.FC<CANMonitorProps> = ({
       <div className="bg-slate-50 px-6 py-2.5 flex justify-between items-center border-b border-slate-200 shrink-0 z-[100]">
         <div className="flex items-center gap-4">
           <div className="flex items-center gap-2 px-3 py-1 bg-white rounded border border-slate-200 text-[9px] font-orbitron font-black text-indigo-600 shadow-sm">
-            <Terminal size={10} /> TRACE_VIEW_HUD
+            <Terminal size={10} /> LIVE_TRACE_HUD
           </div>
           
           <button 
@@ -110,7 +116,7 @@ const CANMonitor: React.FC<CANMonitorProps> = ({
           </button>
         </div>
         <div className="text-[8px] font-orbitron font-black text-slate-300 uppercase tracking-[0.3em] hidden md:flex items-center gap-2">
-          <Info size={10} className="text-indigo-400" /> RECENT_STREAM_WINDOW
+          <Info size={10} className="text-indigo-400" /> RECENT_WINDOW: {displayFrames.length.toLocaleString()}
         </div>
       </div>
 
@@ -135,7 +141,7 @@ const CANMonitor: React.FC<CANMonitorProps> = ({
       <div className="bg-slate-50 px-6 py-2 border-t border-slate-200 flex justify-between items-center text-[8px] font-orbitron font-black text-slate-400 uppercase tracking-widest shrink-0 z-[60]">
         <div className="flex gap-6">
           <span>PCAN_VIEW_COMPATIBLE: 100%</span>
-          <span className="text-indigo-600 font-bold">BUFFER_USAGE: {frames.length.toLocaleString()} FRAMES</span>
+          <span className="text-indigo-600 font-bold">BUFFER_USAGE: {frames.length.toLocaleString()} / 1,000,000 FRAMES</span>
           {isSaving && (
             <div className="flex items-center gap-2 text-indigo-600 font-bold ml-4">
                <div className="w-1.5 h-1.5 bg-indigo-600 rounded-full animate-pulse"></div>
