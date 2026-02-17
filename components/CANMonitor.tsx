@@ -1,7 +1,6 @@
-
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { CANFrame, ConversionLibrary } from '@/types';
-import { Terminal, Lock, Unlock, RefreshCw, Clock, Timer, Info, Save, Loader2 } from 'lucide-react';
+import { Terminal, Lock, Unlock, RefreshCw, Clock, Timer, Info, Save, Loader2, Zap } from 'lucide-react';
 
 interface CANMonitorProps {
   frames: CANFrame[];
@@ -10,6 +9,8 @@ interface CANMonitorProps {
   onClearTrace?: () => void;
   onSaveTrace?: () => void;
   isSaving?: boolean;
+  autoSaveEnabled?: boolean;
+  onToggleAutoSave?: () => void;
 }
 
 const CANMonitor: React.FC<CANMonitorProps> = ({ 
@@ -17,7 +18,9 @@ const CANMonitor: React.FC<CANMonitorProps> = ({
   isPaused, 
   onClearTrace, 
   onSaveTrace,
-  isSaving = false
+  isSaving = false,
+  autoSaveEnabled = false,
+  onToggleAutoSave
 }) => {
   const [autoScroll, setAutoScroll] = useState(true);
   const [isResetting, setIsResetting] = useState(false);
@@ -100,6 +103,19 @@ const CANMonitor: React.FC<CANMonitorProps> = ({
             {isSaving ? 'SAVING_BUFFER...' : 'SAVE_TRACE'}
           </button>
 
+          {/* AUTO SAVE TOGGLE */}
+          <button 
+            onClick={onToggleAutoSave}
+            className={`flex items-center gap-2 px-4 py-1.5 rounded-lg text-[9px] font-orbitron font-black uppercase transition-all border shadow-sm ${
+              autoSaveEnabled 
+                ? 'bg-emerald-600 border-emerald-700 text-white' 
+                : 'bg-white border-slate-200 text-slate-400'
+            }`}
+          >
+            <Zap size={12} className={autoSaveEnabled ? 'animate-pulse' : ''} />
+            {autoSaveEnabled ? 'AUTO_SAVE: ON' : 'AUTO_SAVE: OFF'}
+          </button>
+
           <button onClick={() => setTimeMode(timeMode === 'relative' ? 'absolute' : 'relative')} className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-[8px] font-orbitron font-black uppercase transition-all border bg-white border-slate-200 text-slate-600 hover:border-indigo-600/50 hover:text-indigo-600 shadow-sm">
             {timeMode === 'relative' ? <Timer size={10} /> : <Clock size={10} />}
             {timeMode === 'relative' ? 'RELATIVE_TIME' : 'SYSTEM_TIME'}
@@ -142,10 +158,10 @@ const CANMonitor: React.FC<CANMonitorProps> = ({
         <div className="flex gap-6">
           <span>PCAN_VIEW_COMPATIBLE: 100%</span>
           <span className="text-indigo-600 font-bold">BUFFER_USAGE: {frames.length.toLocaleString()} / 1,000,000 FRAMES</span>
-          {isSaving && (
+          {(isSaving || (autoSaveEnabled && frames.length >= 999990)) && (
             <div className="flex items-center gap-2 text-indigo-600 font-bold ml-4">
                <div className="w-1.5 h-1.5 bg-indigo-600 rounded-full animate-pulse"></div>
-               EXPORT_ACTIVE: DO NOT DISCONNECT
+               {autoSaveEnabled && frames.length >= 999990 ? 'AUTO_SAVE_PENDING' : 'EXPORT_ACTIVE: DO NOT DISCONNECT'}
             </div>
           )}
         </div>
