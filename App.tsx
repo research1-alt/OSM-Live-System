@@ -213,7 +213,7 @@ const App: React.FC = () => {
     }
   };
 
-    const handleSaveTrace = async (isAuto: boolean = false) => {
+  const handleSaveTrace = async (isAuto: boolean = false) => {
     if (frames.length === 0) return;
     if (!isAuto) setIsSaving(true);
     addDebugLog(isAuto ? "AUTOSAVE: Buffer limit reached. Generating Trace..." : "SYS: Compiling PCAN-View v5.x Trace...");
@@ -608,7 +608,7 @@ const App: React.FC = () => {
   };
 
   /**
-   * FRAME BATCHING & AUTO-SAVE TRIGGER
+   * FRAME BATCHING
    */
   useEffect(() => {
     const interval = setInterval(() => {
@@ -618,15 +618,6 @@ const App: React.FC = () => {
         
         setFrames(prev => {
           const next = [...prev, ...batch];
-          
-          // Check for Auto-Save Trigger
-          if (autoSaveEnabled && next.length >= MAX_FRAME_LIMIT && !hasTriggeredAutoSaveRef.current) {
-             hasTriggeredAutoSaveRef.current = true;
-             // Trigger exports
-             handleSaveTrace(true);
-             handleSaveDecoded(true);
-          }
-
           if (next.length > MAX_FRAME_LIMIT) {
             return next.slice(-MAX_FRAME_LIMIT);
           }
@@ -639,7 +630,18 @@ const App: React.FC = () => {
       }
     }, BATCH_UPDATE_INTERVAL);
     return () => clearInterval(interval);
-  }, [autoSaveEnabled]);
+  }, []);
+
+  /**
+   * AUTONOMOUS MONITORING: Watch for buffer limit
+   */
+  useEffect(() => {
+    if (autoSaveEnabled && frames.length >= MAX_FRAME_LIMIT && !hasTriggeredAutoSaveRef.current) {
+      hasTriggeredAutoSaveRef.current = true;
+      handleSaveTrace(true);
+      handleSaveDecoded(true);
+    }
+  }, [frames.length, autoSaveEnabled]);
 
   const handleAuthenticated = (u: User, s: string) => {
     localStorage.setItem('osm_currentUser', JSON.stringify(u));
