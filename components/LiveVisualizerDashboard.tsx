@@ -82,16 +82,22 @@ const LiveVisualizerDashboard: React.FC<LiveVisualizerDashboardProps> = ({
     const searchLower = searchTerm.toLowerCase();
 
     (Object.entries(library?.database || {}) as [string, DBCMessage][]).forEach(([decId, message]) => {
+      const normDbcId = normalizeId(decId);
+      
+      // Filter logic: Only show signals if their message ID has been seen in latest traffic/log
+      if (!latestFrames[normDbcId]) return;
+
       const cleanName = cleanMessageName(message.name);
       const matchedSignals = (Object.values(message.signals) as DBCSignal[]).filter(sig => 
         cleanName.toLowerCase().includes(searchLower) || sig.name.toLowerCase().includes(searchLower)
       );
+      
       if (matchedSignals.length > 0) {
         list.push({ id: decId, cleanName, signals: matchedSignals });
       }
     });
     return list.sort((a, b) => a.cleanName.localeCompare(b.cleanName));
-  }, [library, searchTerm]);
+  }, [library, searchTerm, latestFrames]);
 
   const plotData = useMemo(() => {
     if (!selectedSignalNames || selectedSignalNames.length === 0) return [];
@@ -267,27 +273,35 @@ const LiveVisualizerDashboard: React.FC<LiveVisualizerDashboardProps> = ({
             </div>
             <div className="flex-1 overflow-y-auto p-2 custom-scrollbar">
               <div className="flex items-center gap-2 px-3 py-2 text-[9px] font-black text-slate-400 uppercase tracking-widest border-b mb-2"><FolderOpen size={12} /> Matrix_Navigator</div>
-              {groupedSignals.map(group => (
-                <div key={group.id} className="mb-1">
-                  <button onClick={() => setExpandedGroups(prev => prev.includes(group.id) ? prev.filter(g => g !== group.id) : [...prev, group.id])} className="w-full flex items-center gap-2 px-3 py-2 hover:bg-slate-50 rounded text-left transition-colors">
-                    {expandedGroups.includes(group.id) ? <ChevronDown size={14} className="text-slate-400" /> : <ChevronRight size={14} className="text-slate-400" />}
-                    <span className="text-[10px] font-bold text-slate-700 truncate">{group.cleanName}</span>
-                  </button>
-                  {expandedGroups.includes(group.id) && (
-                    <div className="ml-6 space-y-1 mt-1 border-l pl-3">
-                      {group.signals.map(sig => {
-                        const isSelected = selectedSignalNames.includes(sig.name);
-                        return (
-                          <button key={sig.name} onClick={() => toggleSignalSelection(sig.name)} className={`w-full flex items-center gap-3 px-3 py-1.5 rounded text-[10px] transition-all group ${isSelected ? 'bg-indigo-50 text-indigo-600 font-black' : 'text-slate-400 hover:text-slate-800'}`}>
-                            <div className={`w-3.5 h-3.5 rounded-md border flex items-center justify-center transition-colors ${isSelected ? 'bg-indigo-600 border-indigo-600' : 'border-slate-300 bg-white group-hover:border-slate-400'}`}>{isSelected && <Check size={10} className="text-white" />}</div>
-                            <span className="truncate">{sig.name}</span>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  )}
+              {groupedSignals.length === 0 ? (
+                <div className="text-center py-12 px-4">
+                  <p className="text-[10px] font-bold text-slate-400 uppercase leading-relaxed">
+                    {isOffline ? 'No data in log' : 'Awaiting live bus traffic...'}
+                  </p>
                 </div>
-              ))}
+              ) : (
+                groupedSignals.map(group => (
+                  <div key={group.id} className="mb-1">
+                    <button onClick={() => setExpandedGroups(prev => prev.includes(group.id) ? prev.filter(g => g !== group.id) : [...prev, group.id])} className="w-full flex items-center gap-2 px-3 py-2 hover:bg-slate-50 rounded text-left transition-colors">
+                      {expandedGroups.includes(group.id) ? <ChevronDown size={14} className="text-slate-400" /> : <ChevronRight size={14} className="text-slate-400" />}
+                      <span className="text-[10px] font-bold text-slate-700 truncate">{group.cleanName}</span>
+                    </button>
+                    {expandedGroups.includes(group.id) && (
+                      <div className="ml-6 space-y-1 mt-1 border-l pl-3">
+                        {group.signals.map(sig => {
+                          const isSelected = selectedSignalNames.includes(sig.name);
+                          return (
+                            <button key={sig.name} onClick={() => toggleSignalSelection(sig.name)} className={`w-full flex items-center gap-3 px-3 py-1.5 rounded text-[10px] transition-all group ${isSelected ? 'bg-indigo-50 text-indigo-600 font-black' : 'text-slate-400 hover:text-slate-800'}`}>
+                              <div className={`w-3.5 h-3.5 rounded-md border flex items-center justify-center transition-colors ${isSelected ? 'bg-indigo-600 border-indigo-600' : 'border-slate-300 bg-white group-hover:border-slate-400'}`}>{isSelected && <Check size={10} className="text-white" />}</div>
+                              <span className="truncate">{sig.name}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                ))
+              )}
             </div>
           </aside>
         )}
