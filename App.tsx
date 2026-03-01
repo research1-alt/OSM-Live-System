@@ -55,6 +55,7 @@ const App: React.FC = () => {
   const [autoSaveEnabled, setAutoSaveEnabled] = useState(false);
   const [msgPerSec, setMsgPerSec] = useState(0);
   const [showBufferWarning, setShowBufferWarning] = useState(false);
+  const [showLoggingModal, setShowLoggingModal] = useState(false);
   const hasTriggeredAutoSaveRef = useRef(false);
   const frameCountRef = useRef(0);
   const lastSecRef = useRef(performance.now());
@@ -392,58 +393,9 @@ const App: React.FC = () => {
       setIsLogging(true);
       addDebugLog(`LOGGING_STARTED: ${fileName}`);
 
-      // Ask for decoded logging
+      // Ask for decoded logging via modal instead of confirm
       if (Object.keys(library.database).length > 0) {
-        const wantDecoded = confirm("Would you like to simultaneously log decoded signal data to a CSV file?");
-        if (wantDecoded) {
-          try {
-            let dWritable: any = null;
-            let dFileName = `OSM_DECODED_${new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)}.csv`;
-
-            if (!isMobile) {
-              const dHandle = await (window as any).showSaveFilePicker({
-                suggestedName: dFileName,
-                types: [{ description: 'Telemetry CSV', accept: { 'text/csv': ['.csv'] } }],
-              });
-              dWritable = await dHandle.createWritable();
-              dFileName = dHandle.name;
-            }
-
-            // Prepare CSV Header
-            const idToDbcMap = new Map<string, DBCMessage>();
-            Object.entries(library.database).forEach(([decId, msg]) => idToDbcMap.set(normalizeId(decId), msg as DBCMessage));
-            const activeSignalMeta: any[] = [];
-            idToDbcMap.forEach((msg, normId) => {
-              Object.values(msg.signals).forEach((sig: any) => {
-                activeSignalMeta.push({ name: sig.name, msgId: normId, sig });
-              });
-            });
-            
-            if (activeSignalMeta.length > 0) {
-              const csvHeader = ["timestamp_s", "msg_id", ...activeSignalMeta.map(s => `${s.name} [${s.sig.unit || 'raw'}]`)].join(",");
-              if (dWritable) {
-                await dWritable.write(csvHeader + "\n");
-                decodedWriterRef.current = {
-                  stream: dWritable,
-                  meta: activeSignalMeta,
-                  idMap: idToDbcMap,
-                  lastValues: activeSignalMeta.reduce((acc, s) => ({ ...acc, [s.name]: "0" }), {})
-                };
-              } else {
-                mobileDecodedLogBufferRef.current.push(csvHeader);
-                decodedWriterRef.current = {
-                  meta: activeSignalMeta,
-                  idMap: idToDbcMap,
-                  lastValues: activeSignalMeta.reduce((acc, s) => ({ ...acc, [s.name]: "0" }), {})
-                };
-              }
-              setIsLoggingDecoded(true);
-              addDebugLog(`DECODED_LOGGING_STARTED: ${dFileName}`);
-            }
-          } catch (e) {
-            console.warn("Decoded logging setup failed or cancelled", e);
-          }
-        }
+        setShowLoggingModal(true);
       }
       
       // Clear existing buffer to save memory
@@ -451,6 +403,59 @@ const App: React.FC = () => {
       setFrames([]);
     } catch (e) {
       console.error("Logging start failed", e);
+    }
+  };
+
+  const setupDecodedLogging = async () => {
+    const isMobile = !('showSaveFilePicker' in window);
+    try {
+      let dWritable: any = null;
+      let dFileName = `OSM_DECODED_${new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)}.csv`;
+
+      if (!isMobile) {
+        const dHandle = await (window as any).showSaveFilePicker({
+          suggestedName: dFileName,
+          types: [{ description: 'Telemetry CSV', accept: { 'text/csv': ['.csv'] } }],
+        });
+        dWritable = await dHandle.createWritable();
+        dFileName = dHandle.name;
+      }
+
+      // Prepare CSV Header
+      const idToDbcMap = new Map<string, DBCMessage>();
+      Object.entries(library.database).forEach(([decId, msg]) => idToDbcMap.set(normalizeId(decId), msg as DBCMessage));
+      const activeSignalMeta: any[] = [];
+      idToDbcMap.forEach((msg, normId) => {
+        Object.values(msg.signals).forEach((sig: any) => {
+          activeSignalMeta.push({ name: sig.name, msgId: normId, sig });
+        });
+      });
+      
+      if (activeSignalMeta.length > 0) {
+        const csvHeader = ["timestamp_s", "msg_id", ...activeSignalMeta.map(s => `${s.name} [${s.sig.unit || 'raw'}]`)].join(",");
+        if (dWritable) {
+          await dWritable.write(csvHeader + "\n");
+          decodedWriterRef.current = {
+            stream: dWritable,
+            meta: activeSignalMeta,
+            idMap: idToDbcMap,
+            lastValues: activeSignalMeta.reduce((acc, s) => ({ ...acc, [s.name]: "0" }), {})
+          };
+        } else {
+          mobileDecodedLogBufferRef.current.push(csvHeader);
+          decodedWriterRef.current = {
+            meta: activeSignalMeta,
+            idMap: idToDbcMap,
+            lastValues: activeSignalMeta.reduce((acc, s) => ({ ...acc, [s.name]: "0" }), {})
+          };
+        }
+        setIsLoggingDecoded(true);
+        addDebugLog(`DECODED_LOGGING_STARTED: ${dFileName}`);
+      }
+    } catch (e) {
+      console.warn("Decoded logging setup failed or cancelled", e);
+    } finally {
+      setShowLoggingModal(false);
     }
   };
 
@@ -763,7 +768,7 @@ const App: React.FC = () => {
         frameCountRef.current += batch.length;
         
         // Direct-to-disk logging
-        if (isLogging && traceWriterRef.current) {
+        if (isLogging && (traceWriterRef.current || isLoggingFallback)) {
           try {
             const rows = batch.map((f) => {
               fileMsgCountRef.current++;
@@ -989,6 +994,43 @@ const App: React.FC = () => {
               loggingStartTime={loggingStartTime}
               loggingFileSize={loggingFileSize}
             />
+          )}
+
+          {/* Logging Options Modal */}
+          {showLoggingModal && (
+            <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[1000] flex items-center justify-center p-4">
+              <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden border border-slate-200 animate-in fade-in zoom-in duration-200">
+                <div className="bg-indigo-600 p-6 text-white">
+                  <div className="flex items-center gap-3 mb-2">
+                    <Database className="w-6 h-6" />
+                    <h3 className="text-xl font-orbitron font-black uppercase tracking-tight">Logging Options</h3>
+                  </div>
+                  <p className="text-indigo-100 text-sm">Raw trace logging has started. Would you like to also log decoded signal data to a CSV file?</p>
+                </div>
+                <div className="p-6 space-y-4">
+                  <button 
+                    onClick={setupDecodedLogging}
+                    className="w-full flex items-center justify-between p-4 rounded-xl border-2 border-indigo-100 hover:border-indigo-600 hover:bg-indigo-50 transition-all group"
+                  >
+                    <div className="text-left">
+                      <div className="font-bold text-slate-800">Yes, Log Decoded Data</div>
+                      <div className="text-xs text-slate-500">Saves a separate CSV with human-readable values.</div>
+                    </div>
+                    <ShieldCheck className="w-6 h-6 text-indigo-600 opacity-0 group-hover:opacity-100 transition-opacity" />
+                  </button>
+                  <button 
+                    onClick={() => setShowLoggingModal(false)}
+                    className="w-full flex items-center justify-between p-4 rounded-xl border-2 border-slate-100 hover:border-slate-300 hover:bg-slate-50 transition-all group"
+                  >
+                    <div className="text-left">
+                      <div className="font-bold text-slate-600">No, Raw Trace Only</div>
+                      <div className="text-xs text-slate-400">Only saves the standard .trc file.</div>
+                    </div>
+                    <X className="w-6 h-6 text-slate-400 opacity-0 group-hover:opacity-100 transition-opacity" />
+                  </button>
+                </div>
+              </div>
+            </div>
           )}
         </div>
       )}
