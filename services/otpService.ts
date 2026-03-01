@@ -12,7 +12,7 @@ export const otpService = {
    */
   async dispatchOtp(email: string, code: string, userName: string, mobile: string) {
     const formData = new URLSearchParams();
-    formData.append('status', 'OTP_DISPATCHED');
+    formData.append('action', 'OTP_DISPATCHED');
     formData.append('email', email);
     formData.append('emailCode', code);
     formData.append('userName', userName);

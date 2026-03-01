@@ -12,7 +12,7 @@ import {
   Maximize2, Minimize2
 } from 'lucide-react';
 
-interface LiveVisualizerDashboardProps {
+interface OfflineDataVisualizerProps {
   frames: CANFrame[];
   library: ConversionLibrary;
   latestFrames: Record<string, CANFrame>;
@@ -35,13 +35,13 @@ const CustomTooltip = ({ active, payload, label, unit }: any) => {
   return null;
 };
 
-const LiveVisualizerDashboard: React.FC<LiveVisualizerDashboardProps> = ({ 
+const OfflineDataVisualizer: React.FC<OfflineDataVisualizerProps> = ({ 
   frames = [], 
   library, 
   latestFrames = {},
   selectedSignalNames: propsSelectedSignals = [],
   setSelectedSignalNames: propsSetSelectedSignals,
-  isOffline = false
+  isOffline = true
 }) => {
   const [localSelectedSignals, setLocalSelectedSignals] = useState<string[]>([]);
   const selectedSignalNames = propsSelectedSignals || localSelectedSignals;
@@ -57,7 +57,7 @@ const LiveVisualizerDashboard: React.FC<LiveVisualizerDashboardProps> = ({
   const [zoomedSignal, setZoomedSignal] = useState<string | null>(null);
 
   // Layout & Control Modes
-  const [liveSync, setLiveSync] = useState(true);
+  const [liveSync, setLiveSync] = useState(false);
   const [controlMode, setControlMode] = useState<'select' | 'adjust'>('select');
   const [cursorData, setCursorData] = useState<any>(null);
   
@@ -86,7 +86,7 @@ const LiveVisualizerDashboard: React.FC<LiveVisualizerDashboardProps> = ({
   const resetGraph = () => {
     setLeft('dataMin');
     setRight('dataMax');
-    setLiveSync(true);
+    setLiveSync(false);
     setRefAreaLeft(null);
     setRefAreaRight(null);
   };
@@ -112,7 +112,8 @@ const LiveVisualizerDashboard: React.FC<LiveVisualizerDashboardProps> = ({
   }, [library, searchTerm, latestFrames]);
 
   const plotData = useMemo(() => {
-    if (!selectedSignalNames || selectedSignalNames.length === 0) return [];
+    if (!selectedSignalNames || selectedSignalNames.length === 0 || frames.length === 0) return [];
+    
     const sigLookup = new Map<string, { normId: string; sig: DBCSignal }>();
     (Object.values(library?.database || {}) as DBCMessage[]).forEach(msg => {
       const dbe = (Object.entries(library?.database || {}) as [string, DBCMessage][]).find(([_, v]) => v === msg);
@@ -121,26 +122,49 @@ const LiveVisualizerDashboard: React.FC<LiveVisualizerDashboardProps> = ({
         if (selectedSignalNames.includes(s.name)) sigLookup.set(s.name, { normId, sig: s });
       });
     });
+
+    const visLeft = typeof left === 'number' ? left : (frames[0].timestamp / 1000);
+    const visRight = typeof right === 'number' ? right : (frames[frames.length - 1].timestamp / 1000);
+    
+    // Filter frames to visible range first
+    const visibleFrames = frames.filter(f => {
+      const t = f.timestamp / 1000;
+      return t >= visLeft && t <= visRight;
+    });
+
+    // Dynamic sampling: target ~8000 points for the visible area for performance + clarity
+    const targetPoints = 8000;
+    const step = Math.max(1, Math.floor(visibleFrames.length / targetPoints));
+    
     const lkvMap: Record<string, number> = {};
     const processedPoints: any[] = [];
-    const step = Math.max(1, Math.floor(frames.length / 5000));
-    for (let i = 0; i < frames.length; i += step) {
-      const f = frames[i];
+    
+    for (let i = 0; i < visibleFrames.length; i += step) {
+      const f = visibleFrames[i];
       const fTime = f.timestamp / 1000;
       const fNormId = normalizeId(f.id.replace('0x', ''), true);
       let updated = false;
+      
       selectedSignalNames.forEach(sName => {
         const mapping = sigLookup.get(sName);
         if (mapping && mapping.normId === fNormId) {
           const valStr = decodeSignal(f.data, mapping.sig);
           const val = parseFloat(valStr.split(' ')[0]);
-          if (!isNaN(val)) { lkvMap[sName] = val; updated = true; }
+          if (!isNaN(val)) { 
+            lkvMap[sName] = val; 
+            updated = true; 
+          }
         }
       });
-      if (updated) processedPoints.push({ time: fTime, ...lkvMap });
+      
+      // Always add points at the start/end of the visible range or if a signal updated
+      if (updated || i === 0 || i >= visibleFrames.length - step) {
+        processedPoints.push({ time: fTime, ...lkvMap });
+      }
     }
+    
     return processedPoints;
-  }, [frames, selectedSignalNames, library]);
+  }, [frames, selectedSignalNames, library, left, right]);
 
   const statistics = useMemo(() => {
     if (selectedSignalNames.length === 0 || plotData.length === 0) return null;
@@ -263,7 +287,7 @@ const LiveVisualizerDashboard: React.FC<LiveVisualizerDashboardProps> = ({
         </div>
 
         <div className="flex-1 flex flex-col items-center justify-center">
-          <span className="text-[11px] font-orbitron font-black text-indigo-600 uppercase tracking-[0.2em]">LIVE DATA VISUALIZER</span>
+          <span className="text-[11px] font-orbitron font-black text-indigo-600 uppercase tracking-[0.2em]">OFFLINE DATA VISUALIZER</span>
           <span className="text-[8px] font-orbitron font-black text-slate-400 uppercase tracking-widest">{selectedSignalNames.length} Active Traces Allocated</span>
         </div>
         
@@ -287,7 +311,7 @@ const LiveVisualizerDashboard: React.FC<LiveVisualizerDashboardProps> = ({
               <div className="flex items-center gap-2 px-3 py-2 text-[9px] font-black text-slate-400 uppercase tracking-widest border-b mb-2"><FolderOpen size={12} /> Matrix_Navigator</div>
               {groupedSignals.length === 0 ? (
                 <div className="text-center py-12 px-4">
-                  <p className="text-[10px] font-bold text-slate-400 uppercase leading-relaxed">Awaiting live bus traffic...</p>
+                  <p className="text-[10px] font-bold text-slate-400 uppercase leading-relaxed">No data in log</p>
                 </div>
               ) : (
                 groupedSignals.map(group => (
@@ -374,7 +398,22 @@ const LiveVisualizerDashboard: React.FC<LiveVisualizerDashboardProps> = ({
                       <ResponsiveContainer width="100%" height="100%">
                         <LineChart data={plotData} onMouseDown={onChartMouseDown} onMouseMove={onChartMouseMove} onMouseUp={() => { handleZoom(); isPanning.current = false; }} margin={{ top: 10, right: 30, left: 40, bottom: 10 }}>
                           <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                          <XAxis dataKey="time" type="number" domain={[left, right]} allowDataOverflow fontSize={10} stroke="#cbd5e1" tickFormatter={v => `${v.toFixed(0)}`} hide={false} />
+                          <XAxis 
+                            dataKey="time" 
+                            type="number" 
+                            domain={[left, right]} 
+                            allowDataOverflow 
+                            fontSize={10} 
+                            stroke="#cbd5e1" 
+                            tickFormatter={v => {
+                              const diff = Number(right) - Number(left);
+                              if (diff < 0.1) return v.toFixed(4);
+                              if (diff < 1) return v.toFixed(3);
+                              if (diff < 10) return v.toFixed(1);
+                              return v.toFixed(0);
+                            }} 
+                            hide={false} 
+                          />
                           <YAxis 
                             fontSize={10} 
                             stroke={sigColor} 
@@ -386,7 +425,16 @@ const LiveVisualizerDashboard: React.FC<LiveVisualizerDashboardProps> = ({
                             <Label value={sName} angle={-90} position="insideLeft" style={{ textAnchor: 'middle', fontSize: '9px', fontWeight: 'bold', fill: sigColor }} offset={-20} />
                           </YAxis>
                           <Tooltip content={<CustomTooltip unit={activeSignalUnit} />} cursor={{ stroke: '#4f46e5', strokeWidth: 1, strokeDasharray: '4 4' }} />
-                          <Line key={sName} type="monotone" dataKey={sName} stroke={sigColor} strokeWidth={isActive ? 2.5 : 1.5} dot={false} activeDot={{ r: 4, strokeWidth: 0, fill: '#4f46e5' }} />
+                          <Line 
+                            key={sName} 
+                            type="linear" 
+                            dataKey={sName} 
+                            stroke={sigColor} 
+                            strokeWidth={isActive ? 2.5 : 1.5} 
+                            dot={plotData.length < 300 ? { r: 2, strokeWidth: 1, fill: sigColor } : false} 
+                            activeDot={{ r: 4, strokeWidth: 0, fill: '#4f46e5' }} 
+                            isAnimationActive={false}
+                          />
                           {refAreaLeft !== null && refAreaRight !== null && <ReferenceArea x1={refAreaLeft} x2={refAreaRight} strokeOpacity={1} stroke="#eab308" fill="#4f46e5" fillOpacity={0.1} />}
                         </LineChart>
                       </ResponsiveContainer>
@@ -438,10 +486,10 @@ const LiveVisualizerDashboard: React.FC<LiveVisualizerDashboardProps> = ({
       </div>
       <div className="h-6 bg-slate-100 border-t flex items-center justify-between px-6 text-[8px] font-orbitron font-black text-slate-400 uppercase tracking-widest shrink-0">
          <div className="flex gap-6"><span>{frames.length.toLocaleString()} Pkts_Buffer</span><span>OSM_TELEMETRY_ENGINE_v9.7</span></div>
-         <div className="flex items-center gap-2"><div className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-pulse" /> BRIDGE_HARDWARE_LIVE</div>
+         <div className="flex items-center gap-2">OFFLINE_LOG_ANALYSIS</div>
       </div>
     </div>
   );
 };
 
-export default LiveVisualizerDashboard;
+export default OfflineDataVisualizer;

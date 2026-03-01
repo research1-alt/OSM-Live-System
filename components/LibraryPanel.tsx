@@ -94,19 +94,6 @@ const LibraryPanel: React.FC<LibraryPanelProps> = ({ library, onUpdateLibrary, l
         </div>
         
         <div className="flex items-center gap-3 overflow-x-auto no-scrollbar pb-1 md:pb-0">
-          <button 
-            onClick={onSaveDecoded}
-            disabled={isSavingDecoded}
-            className={`flex items-center gap-2 px-4 py-1.5 rounded-lg text-[8px] font-orbitron font-black uppercase transition-all border shadow-sm shrink-0 ${
-              isSavingDecoded 
-                ? 'bg-indigo-600 text-white border-indigo-700 animate-pulse' 
-                : 'bg-white border-slate-200 text-slate-600 hover:border-emerald-500/50 hover:text-emerald-600'
-            } disabled:opacity-30 disabled:cursor-not-allowed`}
-          >
-            {isSavingDecoded ? <Loader2 size={10} className="animate-spin" /> : <Save size={10} />}
-            {isSavingDecoded ? 'EXPORTING...' : 'SAVE_DECODED'}
-          </button>
-
           <button
             onClick={() => setIsLocked(!isLocked)}
             className={`flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-[8px] font-orbitron font-black uppercase transition-all border shadow-sm shrink-0 ${

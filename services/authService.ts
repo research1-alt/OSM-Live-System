@@ -2,14 +2,14 @@
 import { hashPassword } from '../utils/crypto.ts';
 
 // MISSION CRITICAL: Centralized Apps Script Gateway
-export const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwcBlWlN6AJC7d3cZ9JKeHiYzLu-8xmnrrziPWQaqVHbzbcy6hvsnGydmfS8tGXWkbBRA/exec';
+export const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbysv4xnhNT1egv9JzV4aRJ3-7kNAUiG-1uAtZDSHXenCL3IS-arVGmg6xz4eBcW0P86fg/exec';
 const STORAGE_VERSION = 'v1.2.0';
 export const ALLOWED_DOMAIN = '@omegaseikimobility.com';
 export const ADMIN_EMAIL = 'research1@omegaseikimobility.com';
 
 // MISSION CRITICAL: Targeted Spreadsheet Registry
-export const SPREADSHEET_URL = 'https://docs.google.com/spreadsheets/d/1xItnaIxqCiXgP3IOuWxVZlVGRD543WV1IU2r67PEl3w/edit';
-export const SPREADSHEET_ID = '1xItnaIxqCiXgP3IOuWxVZlVGRD543WV1IU2r67PEl3w';
+export const SPREADSHEET_URL = 'https://docs.google.com/spreadsheets/d/1KW0uw5qyQVVFgF6dwaL38lMVRWgYFOwgQvIxjElOe_A/edit?gid=0#gid=0';
+export const SPREADSHEET_ID = '1KW0uw5qyQVVFgF6dwaL38lMVRWgYFOwgQvIxjElOe_A';
 
 export interface User {
   email: string;
@@ -57,7 +57,7 @@ export const authService = {
    */
   async syncSessionToCloud(email: string, userName: string, sessionId: string) {
     const formData = new URLSearchParams();
-    formData.append('status', 'SESSION_SYNC');
+    formData.append('action', 'SESSION_SYNC');
     formData.append('email', email);
     formData.append('userName', userName);
     formData.append('sessionId', sessionId);
@@ -75,7 +75,7 @@ export const authService = {
    */
   async registerUserInCloud(user: User) {
     const formData = new URLSearchParams();
-    formData.append('status', 'VERIFIED_SIGNUP');
+    formData.append('action', 'VERIFIED_SIGNUP');
     formData.append('email', user.email);
     formData.append('userName', user.userName);
     formData.append('mobile', user.mobile);
@@ -94,7 +94,7 @@ export const authService = {
    */
   async logQuery(user: User, prompt: string, analysis: string, isUnclear: boolean, sessionId: string) {
     const formData = new URLSearchParams();
-    formData.append('status', 'USER_QUERY'); 
+    formData.append('action', 'USER_QUERY'); 
     formData.append('email', user.email);
     formData.append('userName', user.userName);
     formData.append('query', prompt);
@@ -111,6 +111,30 @@ export const authService = {
       });
     } catch (error) {
       console.error("Cloud logging failed:", error);
+    }
+  },
+
+  /**
+   * Cloud Logging: Audit Hardware Identification.
+   */
+  async logHardwareIdentification(user: User, hardwareId: string, sessionId: string, location: string) {
+    const formData = new URLSearchParams();
+    formData.append('action', 'HARDWARE_LOG');
+    formData.append('email', user.email);
+    formData.append('userName', user.userName);
+    formData.append('hardwareId', hardwareId);
+    formData.append('location', location);
+    formData.append('sessionId', sessionId);
+    formData.append('sheetId', SPREADSHEET_ID);
+    
+    try {
+      await fetch(APPS_SCRIPT_URL, {
+        method: 'POST',
+        mode: 'no-cors',
+        body: formData
+      });
+    } catch (error) {
+      console.error("Hardware logging failed:", error);
     }
   }
 };

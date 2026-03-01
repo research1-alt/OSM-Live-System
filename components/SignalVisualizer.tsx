@@ -272,7 +272,7 @@ const SignalVisualizer: React.FC<SignalVisualizerProps> = ({
               {selectedSignals.map((sig, idx) => (
                 <Line 
                   key={sig} 
-                  type="monotone" 
+                  type="stepAfter" 
                   dataKey={sig} 
                   stroke={colors[idx % colors.length]} 
                   strokeWidth={2} 
