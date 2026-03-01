@@ -345,20 +345,25 @@ const App: React.FC = () => {
   }, [frames, library, exportFile]);
 
   const startLogging = useCallback(async () => {
+    // 5. Unified Logic: Move date and time calculations to the very beginning
+    const startDate = new Date();
+    const excelSerialDate = (startDate.getTime() / (1000 * 60 * 60 * 24)) + 25569.0;
+    const timestampStr = startDate.toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    
     addDebugLog("LOGGING: Attempting to start...");
     
     // Robust check for File System Access API
-    // Force fallback on mobile user agents even if API is partially present
     const isMobileUA = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
     const hasFileSystemAPI = !isMobileUA && 'showSaveFilePicker' in window && typeof (window as any).showSaveFilePicker === 'function';
     
     try {
       let writable: any = null;
-      let fileName = `OSM_LOG_${new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)}.trc`;
+      let fileName = `OSM_LOG_${timestampStr}.trc`;
 
       if (hasFileSystemAPI) {
         try {
           addDebugLog("LOGGING: Requesting file handle (Desktop Mode)...");
+          // 6. File Picker on Start: Ensure the app asks where to save the file
           const handle = await (window as any).showSaveFilePicker({
             suggestedName: fileName,
             types: [{ description: 'CAN Trace File', accept: { 'text/plain': ['.trc'] } }],
@@ -370,7 +375,6 @@ const App: React.FC = () => {
             addDebugLog("LOGGING: User cancelled file picker.");
             return;
           }
-          // If picker fails for other reasons, try to fallback to mobile mode
           addDebugLog(`LOGGING_WARN: File picker failed (${pickerErr.message}). Falling back to memory mode.`);
           writable = null;
         }
@@ -383,9 +387,7 @@ const App: React.FC = () => {
         addDebugLog("LOGGING_MODE: Memory Fallback (Active)");
       }
       
-      // Write Header
-      const startDate = new Date();
-      const excelSerialDate = (startDate.getTime() / (1000 * 60 * 60 * 24)) + 25569.0;
+      // 3. Professional Log Headers (PCAN Standard)
       let header = ";$FILEVERSION=2.0\n";
       header += `;$STARTTIME=${excelSerialDate.toFixed(10)}\n`;
       header += ";$COLUMNS=N,O,T,I,d,l,D\n;\n";
@@ -411,17 +413,14 @@ const App: React.FC = () => {
       setIsLogging(true);
       addDebugLog(`LOGGING_STARTED: ${fileName}`);
 
-      // Provide immediate feedback
       if (isMobileUA) {
         alert("Logging Started! Data is being recorded to memory. Click 'STOP LOGGING' to save the file to your device.");
       }
 
-      // Ask for decoded logging via modal
       if (Object.keys(library.database).length > 0) {
         setShowLoggingModal(true);
       }
       
-      // Clear existing buffer to save memory
       fullFramesRef.current = [];
       setFrames([]);
     } catch (e: any) {
@@ -546,7 +545,7 @@ const App: React.FC = () => {
   }, [isLoggingFallback, isLoggingDecoded, loggingFileName, addDebugLog]);
 
   const handleNewFrame = useCallback((id: string, dlc: number, data: string[]) => {
-    if (isPaused) return;
+    // 4. Continuous Logging: Remove early return for isPaused so frames are always processed for logging
     
     // Handle System Messages
     if (id.startsWith('SYS:')) {
@@ -583,8 +582,8 @@ const App: React.FC = () => {
     frameMapRef.current.set(normId, newFrame);
     pendingFramesRef.current.push(newFrame);
     
-    // Only store in full buffer if NOT logging to disk
-    if (!isLogging) {
+    // Only store in full buffer if NOT logging to disk AND NOT paused
+    if (!isLogging && !isPaused) {
       fullFramesRef.current.push(newFrame);
     }
   }, [isPaused, isLogging, hardwareId, addDebugLog]);
@@ -862,22 +861,25 @@ const App: React.FC = () => {
           }
         }
 
-        setFrames(prev => {
-          const nowMs = Date.now();
-          const cutoff = nowMs - 60000; // 60s rolling buffer
-          
-          const next = [...prev, ...batch].filter(f => f.absoluteTimestamp > cutoff);
-          
-          // Check for 0.95M warning only if NOT logging
-          if (!isLogging && next.length >= 950000 && !showBufferWarning) {
-            setShowBufferWarning(true);
-          }
-          
-          return next;
-        });
-        const latest: Record<string, CANFrame> = {};
-        batch.forEach(f => latest[normalizeId(f.id.replace('0x', ''), true)] = f);
-        setLatestFrames(prev => ({ ...prev, ...latest }));
+        // 4. Continuous Logging: UI update only if not paused
+        if (!isPaused) {
+          setFrames(prev => {
+            const nowMs = Date.now();
+            const cutoff = nowMs - 60000; // 60s rolling buffer
+            
+            const next = [...prev, ...batch].filter(f => f.absoluteTimestamp > cutoff);
+            
+            // Check for 0.95M warning only if NOT logging
+            if (!isLogging && next.length >= 950000 && !showBufferWarning) {
+              setShowBufferWarning(true);
+            }
+            
+            return next;
+          });
+          const latest: Record<string, CANFrame> = {};
+          batch.forEach(f => latest[normalizeId(f.id.replace('0x', ''), true)] = f);
+          setLatestFrames(prev => ({ ...prev, ...latest }));
+        }
       }
     }, BATCH_UPDATE_INTERVAL);
     return () => clearInterval(interval);
