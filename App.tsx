@@ -16,7 +16,8 @@ import { User, authService } from '@/services/authService';
 import { generateMockPacket } from '@/utils/canSim';
 
 const MAX_FRAME_LIMIT = 1000000; 
-const BATCH_UPDATE_INTERVAL = 60; 
+const BATCH_UPDATE_INTERVAL = 200; // Increased from 60ms to 200ms to reduce UI/Bridge pressure
+const MAX_TRACE_FRAMES = 5000; // Limit UI trace buffer size for performance
 const STALE_SIGNAL_TIMEOUT = 5000; 
 
 // Common BLE UART Service UUIDs
@@ -449,9 +450,7 @@ const App: React.FC = () => {
     setIsLogging(true);
     addDebugLog(`LOGGING_STARTED: ${fileName}`);
 
-    if (Object.keys(library.database).length > 0) {
-      setShowLoggingModal(true);
-    }
+    // Modal removed as per user request
     
     fullFramesRef.current = [];
     setFrames([]);
@@ -911,9 +910,14 @@ const App: React.FC = () => {
         if (!isPaused) {
           setFrames(prev => {
             const nowMs = Date.now();
-            const cutoff = nowMs - 60000; // 60s rolling buffer
+            const cutoff = nowMs - 30000; // Reduced to 30s rolling buffer for mobile performance
             
             const next = [...prev, ...batch].filter(f => f.absoluteTimestamp > cutoff);
+            
+            // Limit the number of frames in the UI state to prevent hanging
+            if (next.length > MAX_TRACE_FRAMES) {
+              return next.slice(-MAX_TRACE_FRAMES);
+            }
             
             // Check for 0.95M warning only if NOT logging
             if (!isLogging && next.length >= 950000 && !showBufferWarning) {
