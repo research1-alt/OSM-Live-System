@@ -345,24 +345,41 @@ const App: React.FC = () => {
   }, [frames, library, exportFile]);
 
   const startLogging = async () => {
-    const isMobile = !('showSaveFilePicker' in window);
+    addDebugLog("LOGGING: Attempting to start...");
+    
+    // Robust check for File System Access API
+    const hasFileSystemAPI = 'showSaveFilePicker' in window && typeof (window as any).showSaveFilePicker === 'function';
+    const isMobile = !hasFileSystemAPI;
     
     try {
       let writable: any = null;
       let fileName = `OSM_LOG_${new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)}.trc`;
 
-      if (!isMobile) {
-        const handle = await (window as any).showSaveFilePicker({
-          suggestedName: fileName,
-          types: [{ description: 'CAN Trace File', accept: { 'text/plain': ['.trc'] } }],
-        });
-        writable = await handle.createWritable();
-        fileName = handle.name;
-      } else {
+      if (hasFileSystemAPI) {
+        try {
+          addDebugLog("LOGGING: Requesting file handle (Desktop Mode)...");
+          const handle = await (window as any).showSaveFilePicker({
+            suggestedName: fileName,
+            types: [{ description: 'CAN Trace File', accept: { 'text/plain': ['.trc'] } }],
+          });
+          writable = await handle.createWritable();
+          fileName = handle.name;
+        } catch (pickerErr: any) {
+          if (pickerErr.name === 'AbortError') {
+            addDebugLog("LOGGING: User cancelled file picker.");
+            return;
+          }
+          // If picker fails for other reasons, try to fallback to mobile mode
+          addDebugLog(`LOGGING_WARN: File picker failed (${pickerErr.message}). Falling back to memory mode.`);
+          writable = null;
+        }
+      }
+
+      if (!writable) {
         mobileLogBufferRef.current = [];
         mobileDecodedLogBufferRef.current = [];
         setIsLoggingFallback(true);
-        addDebugLog("LOGGING_MODE: Mobile Fallback (In-Memory)");
+        addDebugLog("LOGGING_MODE: Memory Fallback (Active)");
       }
       
       // Write Header
@@ -393,7 +410,7 @@ const App: React.FC = () => {
       setIsLogging(true);
       addDebugLog(`LOGGING_STARTED: ${fileName}`);
 
-      // Ask for decoded logging via modal instead of confirm
+      // Ask for decoded logging via modal
       if (Object.keys(library.database).length > 0) {
         setShowLoggingModal(true);
       }
@@ -401,7 +418,9 @@ const App: React.FC = () => {
       // Clear existing buffer to save memory
       fullFramesRef.current = [];
       setFrames([]);
-    } catch (e) {
+    } catch (e: any) {
+      addDebugLog(`LOGGING_CRITICAL_ERROR: ${e.message || 'Unknown'}`);
+      alert(`Logging Error: ${e.message || 'Failed to initialize logging'}`);
       console.error("Logging start failed", e);
     }
   };
@@ -460,25 +479,39 @@ const App: React.FC = () => {
   };
 
   const stopLogging = async () => {
+    addDebugLog("LOGGING: Stopping session...");
     if (isLoggingFallback) {
-      // Download TRC
-      const trcBlob = new Blob([mobileLogBufferRef.current.join('\n')], { type: 'text/plain' });
-      const trcUrl = URL.createObjectURL(trcBlob);
-      const trcLink = document.createElement('a');
-      trcLink.href = trcUrl;
-      trcLink.download = loggingFileName || 'OSM_LOG.trc';
-      trcLink.click();
-      URL.revokeObjectURL(trcUrl);
+      try {
+        addDebugLog("LOGGING: Preparing mobile downloads...");
+        
+        const triggerDownload = (data: string[], fileName: string, mimeType: string, delay: number = 0) => {
+          setTimeout(() => {
+            const blob = new Blob([data.join('\n')], { type: mimeType });
+            const reader = new FileReader();
+            reader.onloadend = () => {
+              const base64data = reader.result as string;
+              const link = document.createElement('a');
+              link.href = base64data;
+              link.download = fileName;
+              document.body.appendChild(link);
+              link.click();
+              document.body.removeChild(link);
+              addDebugLog(`LOGGING: Download triggered for ${fileName}`);
+            };
+            reader.readAsDataURL(blob);
+          }, delay);
+        };
 
-      // Download CSV if active
-      if (isLoggingDecoded && mobileDecodedLogBufferRef.current.length > 0) {
-        const csvBlob = new Blob([mobileDecodedLogBufferRef.current.join('\n')], { type: 'text/csv' });
-        const csvUrl = URL.createObjectURL(csvBlob);
-        const csvLink = document.createElement('a');
-        csvLink.href = csvUrl;
-        csvLink.download = (loggingFileName || 'OSM_LOG').replace('.trc', '') + '_DECODED.csv';
-        csvLink.click();
-        URL.revokeObjectURL(csvUrl);
+        // Download TRC
+        triggerDownload(mobileLogBufferRef.current, loggingFileName || 'OSM_LOG.trc', 'text/plain');
+        
+        // Download CSV if active
+        if (isLoggingDecoded && mobileDecodedLogBufferRef.current.length > 0) {
+          const csvName = (loggingFileName || 'OSM_LOG').replace('.trc', '') + '_DECODED.csv';
+          triggerDownload(mobileDecodedLogBufferRef.current, csvName, 'text/csv', 1500);
+        }
+      } catch (err: any) {
+        addDebugLog(`LOGGING_ERROR: Mobile download failed: ${err.message}`);
       }
     }
 
@@ -841,7 +874,7 @@ const App: React.FC = () => {
       }
     }, BATCH_UPDATE_INTERVAL);
     return () => clearInterval(interval);
-  }, [showBufferWarning, isLogging]);
+  }, [showBufferWarning, isLogging, isLoggingFallback, isLoggingDecoded, isPaused, stopLogging]);
 
   // Hardware Identification Logging
   useEffect(() => {
