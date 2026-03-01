@@ -17,6 +17,8 @@ interface CANMonitorProps {
   onStartLogging?: () => void;
   onStopLogging?: () => void;
   isLoggingDecoded?: boolean;
+  loggingStartTime?: number | null;
+  loggingFileSize?: number;
 }
 
 const CANMonitor: React.FC<CANMonitorProps> = ({ 
@@ -32,12 +34,36 @@ const CANMonitor: React.FC<CANMonitorProps> = ({
   loggingFileName = null,
   onStartLogging,
   onStopLogging,
-  isLoggingDecoded = false
+  isLoggingDecoded = false,
+  loggingStartTime = null,
+  loggingFileSize = 0
 }) => {
   const [autoScroll, setAutoScroll] = useState(true);
   const [isResetting, setIsResetting] = useState(false);
   const [timeMode, setTimeMode] = useState<'relative' | 'absolute'>('relative');
+  const [duration, setDuration] = useState('0:00');
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    let interval: any;
+    if (isLogging && loggingStartTime) {
+      interval = setInterval(() => {
+        const elapsed = Math.floor((Date.now() - loggingStartTime) / 1000);
+        const mins = Math.floor(elapsed / 60);
+        const secs = elapsed % 60;
+        setDuration(`${mins}:${secs.toString().padStart(2, '0')}`);
+      }, 1000);
+    } else {
+      setDuration('0:00');
+    }
+    return () => clearInterval(interval);
+  }, [isLogging, loggingStartTime]);
+
+  const formatFileSize = (bytes: number) => {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  };
 
   const displayFrames = useMemo(() => {
     if (frames.length <= 1000) return frames;
@@ -125,6 +151,12 @@ const CANMonitor: React.FC<CANMonitorProps> = ({
             {!isResetting && displayFrames.map((frame, idx) => formatClassicRow(frame, idx))}
           </div>
         </div>
+        {!isResetting && frames.length > 0 && (
+          <div className="absolute bottom-2 left-4 flex items-center gap-2 z-30 pointer-events-none">
+            <div className="w-1.5 h-1.5 bg-indigo-500 rounded-full animate-pulse"></div>
+            <span className="text-[7px] font-orbitron font-black text-indigo-400 uppercase tracking-widest">TRACE_STREAM_ACTIVE</span>
+          </div>
+        )}
         {(frames.length === 0 || isResetting) && !isPaused && (
           <div className="absolute inset-0 flex flex-col items-center justify-center bg-white/95 z-40 pointer-events-none">
             <p className="text-[8px] font-orbitron font-black text-indigo-400 uppercase tracking-[0.4em]">{isResetting ? 'PURGING' : 'AWAITING_BUS'}</p>
@@ -134,18 +166,20 @@ const CANMonitor: React.FC<CANMonitorProps> = ({
 
       <div className="bg-slate-50 px-3 md:px-6 py-1.5 border-t border-slate-200 flex flex-col sm:flex-row justify-between items-center text-[7px] md:text-[8px] font-orbitron font-black text-slate-400 uppercase shrink-0 z-[60] gap-1">
         <div className="flex flex-wrap gap-3 md:gap-6 justify-center items-center">
-          {isLogging ? (
+          <span className="text-indigo-600 font-bold">{frames.length.toLocaleString()} 60S_BUFFER</span>
+          <span className="text-emerald-600 font-bold">{msgPerSec?.toLocaleString() || 0} MSG/SEC</span>
+          {isLogging && (
             <div className="flex items-center gap-2 text-red-600 font-bold">
               <div className="w-1.5 h-1.5 bg-red-600 rounded-full animate-pulse"></div>
-              REC: {loggingFileName || 'STREAMING_TO_DISK'}
+              REC: {loggingFileName || 'STREAMING'} ({duration}) [{formatFileSize(loggingFileSize)}]
               {isLoggingDecoded && <span className="text-emerald-600 ml-1">+ DECODED</span>}
             </div>
-          ) : (
-            <span className="text-indigo-600 font-bold">BUFF: {frames.length.toLocaleString()} / 60S</span>
           )}
-          <span className="text-emerald-600 font-bold">RATE: {msgPerSec?.toLocaleString() || 0} MSG/S</span>
         </div>
-        <div className="hidden xs:block">PCAN_VIEW_LINK v5.x</div>
+        <div className="flex items-center gap-4">
+          <div className="hidden xs:block">BRIDGE_ACTIVE_LINK</div>
+          <div className="hidden xs:block">HARDWARE_TELEMETRY_ENGINE</div>
+        </div>
       </div>
     </div>
   );

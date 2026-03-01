@@ -36,6 +36,8 @@ interface LiveDashboardProps {
   onStartLogging: () => void;
   onStopLogging: () => void;
   isLoggingDecoded: boolean;
+  loggingStartTime: number | null;
+  loggingFileSize: number;
 }
 
 const LiveDashboard: React.FC<LiveDashboardProps> = (props) => {
@@ -148,6 +150,8 @@ const LiveDashboard: React.FC<LiveDashboardProps> = (props) => {
               onStartLogging={props.onStartLogging}
               onStopLogging={props.onStopLogging}
               isLoggingDecoded={props.isLoggingDecoded}
+              loggingStartTime={props.loggingStartTime}
+              loggingFileSize={props.loggingFileSize}
             />
 
             {/* Buffer Warning Pop-up */}

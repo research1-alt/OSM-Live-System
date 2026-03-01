@@ -61,9 +61,14 @@ const App: React.FC = () => {
 
   const [isLogging, setIsLogging] = useState(false);
   const [isLoggingDecoded, setIsLoggingDecoded] = useState(false);
+  const [isLoggingFallback, setIsLoggingFallback] = useState(false);
   const [loggingFileName, setLoggingFileName] = useState<string | null>(null);
+  const [loggingStartTime, setLoggingStartTime] = useState<number | null>(null);
+  const [loggingFileSize, setLoggingFileSize] = useState<number>(0);
   const traceWriterRef = useRef<any>(null);
   const decodedWriterRef = useRef<any>(null);
+  const mobileLogBufferRef = useRef<string[]>([]);
+  const mobileDecodedLogBufferRef = useRef<string[]>([]);
   const fileMsgCountRef = useRef(0);
 
   const [bridgeStatus, setBridgeStatus] = useState<ConnectionStatus>('disconnected');
@@ -339,18 +344,25 @@ const App: React.FC = () => {
   }, [frames, library, exportFile]);
 
   const startLogging = async () => {
-    if (!('showSaveFilePicker' in window)) {
-      alert("Direct-to-disk logging requires the File System Access API (Desktop Chrome/Edge). On mobile, the app will maintain a 60-second rolling buffer to ensure performance.");
-      return;
-    }
-
+    const isMobile = !('showSaveFilePicker' in window);
+    
     try {
-      const handle = await (window as any).showSaveFilePicker({
-        suggestedName: `OSM_LOG_${new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)}.trc`,
-        types: [{ description: 'CAN Trace File', accept: { 'text/plain': ['.trc'] } }],
-      });
-      
-      const writable = await handle.createWritable();
+      let writable: any = null;
+      let fileName = `OSM_LOG_${new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)}.trc`;
+
+      if (!isMobile) {
+        const handle = await (window as any).showSaveFilePicker({
+          suggestedName: fileName,
+          types: [{ description: 'CAN Trace File', accept: { 'text/plain': ['.trc'] } }],
+        });
+        writable = await handle.createWritable();
+        fileName = handle.name;
+      } else {
+        mobileLogBufferRef.current = [];
+        mobileDecodedLogBufferRef.current = [];
+        setIsLoggingFallback(true);
+        addDebugLog("LOGGING_MODE: Mobile Fallback (In-Memory)");
+      }
       
       // Write Header
       const startDate = new Date();
@@ -366,25 +378,37 @@ const App: React.FC = () => {
       header += ";   |         |       |    |      |  |  |\n";
       header += ";---+-- ------+------ +- --+----- +- +- +- +- -- -- -- -- -- -- --\n";
       
-      await writable.write(header);
+      if (writable) {
+        await writable.write(header);
+        traceWriterRef.current = writable;
+      } else {
+        mobileLogBufferRef.current.push(header);
+      }
       
-      traceWriterRef.current = writable;
       fileMsgCountRef.current = 0;
-      setLoggingFileName(handle.name);
+      setLoggingFileName(fileName);
+      setLoggingStartTime(Date.now());
+      setLoggingFileSize(header.length);
       setIsLogging(true);
-      addDebugLog(`LOGGING_STARTED: ${handle.name}`);
+      addDebugLog(`LOGGING_STARTED: ${fileName}`);
 
       // Ask for decoded logging
       if (Object.keys(library.database).length > 0) {
         const wantDecoded = confirm("Would you like to simultaneously log decoded signal data to a CSV file?");
         if (wantDecoded) {
           try {
-            const dHandle = await (window as any).showSaveFilePicker({
-              suggestedName: `OSM_DECODED_${new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)}.csv`,
-              types: [{ description: 'Telemetry CSV', accept: { 'text/csv': ['.csv'] } }],
-            });
-            const dWritable = await dHandle.createWritable();
-            
+            let dWritable: any = null;
+            let dFileName = `OSM_DECODED_${new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)}.csv`;
+
+            if (!isMobile) {
+              const dHandle = await (window as any).showSaveFilePicker({
+                suggestedName: dFileName,
+                types: [{ description: 'Telemetry CSV', accept: { 'text/csv': ['.csv'] } }],
+              });
+              dWritable = await dHandle.createWritable();
+              dFileName = dHandle.name;
+            }
+
             // Prepare CSV Header
             const idToDbcMap = new Map<string, DBCMessage>();
             Object.entries(library.database).forEach(([decId, msg]) => idToDbcMap.set(normalizeId(decId), msg as DBCMessage));
@@ -396,16 +420,25 @@ const App: React.FC = () => {
             });
             
             if (activeSignalMeta.length > 0) {
-              const header = ["timestamp_s", "msg_id", ...activeSignalMeta.map(s => `${s.name} [${s.sig.unit || 'raw'}]`)].join(",");
-              await dWritable.write(header + "\n");
-              decodedWriterRef.current = {
-                stream: dWritable,
-                meta: activeSignalMeta,
-                idMap: idToDbcMap,
-                lastValues: activeSignalMeta.reduce((acc, s) => ({ ...acc, [s.name]: "0" }), {})
-              };
+              const csvHeader = ["timestamp_s", "msg_id", ...activeSignalMeta.map(s => `${s.name} [${s.sig.unit || 'raw'}]`)].join(",");
+              if (dWritable) {
+                await dWritable.write(csvHeader + "\n");
+                decodedWriterRef.current = {
+                  stream: dWritable,
+                  meta: activeSignalMeta,
+                  idMap: idToDbcMap,
+                  lastValues: activeSignalMeta.reduce((acc, s) => ({ ...acc, [s.name]: "0" }), {})
+                };
+              } else {
+                mobileDecodedLogBufferRef.current.push(csvHeader);
+                decodedWriterRef.current = {
+                  meta: activeSignalMeta,
+                  idMap: idToDbcMap,
+                  lastValues: activeSignalMeta.reduce((acc, s) => ({ ...acc, [s.name]: "0" }), {})
+                };
+              }
               setIsLoggingDecoded(true);
-              addDebugLog(`DECODED_LOGGING_STARTED: ${dHandle.name}`);
+              addDebugLog(`DECODED_LOGGING_STARTED: ${dFileName}`);
             }
           } catch (e) {
             console.warn("Decoded logging setup failed or cancelled", e);
@@ -422,21 +455,49 @@ const App: React.FC = () => {
   };
 
   const stopLogging = async () => {
+    if (isLoggingFallback) {
+      // Download TRC
+      const trcBlob = new Blob([mobileLogBufferRef.current.join('\n')], { type: 'text/plain' });
+      const trcUrl = URL.createObjectURL(trcBlob);
+      const trcLink = document.createElement('a');
+      trcLink.href = trcUrl;
+      trcLink.download = loggingFileName || 'OSM_LOG.trc';
+      trcLink.click();
+      URL.revokeObjectURL(trcUrl);
+
+      // Download CSV if active
+      if (isLoggingDecoded && mobileDecodedLogBufferRef.current.length > 0) {
+        const csvBlob = new Blob([mobileDecodedLogBufferRef.current.join('\n')], { type: 'text/csv' });
+        const csvUrl = URL.createObjectURL(csvBlob);
+        const csvLink = document.createElement('a');
+        csvLink.href = csvUrl;
+        csvLink.download = (loggingFileName || 'OSM_LOG').replace('.trc', '') + '_DECODED.csv';
+        csvLink.click();
+        URL.revokeObjectURL(csvUrl);
+      }
+    }
+
     if (traceWriterRef.current) {
       try {
         await traceWriterRef.current.close();
       } catch (e) {}
       traceWriterRef.current = null;
     }
-    if (decodedWriterRef.current) {
+    if (decodedWriterRef.current?.stream) {
       try {
         await decodedWriterRef.current.stream.close();
       } catch (e) {}
-      decodedWriterRef.current = null;
     }
+    decodedWriterRef.current = null;
+    
     setIsLogging(false);
     setIsLoggingDecoded(false);
+    setIsLoggingFallback(false);
     setLoggingFileName(null);
+    setLoggingStartTime(null);
+    setLoggingFileSize(0);
+    mobileLogBufferRef.current = [];
+    mobileDecodedLogBufferRef.current = [];
     addDebugLog("LOGGING_STOPPED");
   };
 
@@ -713,9 +774,12 @@ const App: React.FC = () => {
               const rxtx = f.direction.padStart(2, ' ');
               const dlc = f.dlc.toString().padStart(1, ' ');
               const dataBytes = f.data.map(d => d.padStart(2, '0').toUpperCase()).join(' ');
-              return `${msgNum} ${timeOffset} ${type} ${id} ${rxtx} ${dlc}  ${dataBytes}`;
+              const row = `${msgNum} ${timeOffset} ${type} ${id} ${rxtx} ${dlc}  ${dataBytes}`;
+              setLoggingFileSize(prev => prev + row.length + 1);
+              if (isLoggingFallback) mobileLogBufferRef.current.push(row);
+              return row;
             });
-            await traceWriterRef.current.write(rows.join('\n') + '\n');
+            if (traceWriterRef.current) await traceWriterRef.current.write(rows.join('\n') + '\n');
           } catch (e) {
             console.error("Stream write error", e);
             stopLogging();
@@ -741,7 +805,11 @@ const App: React.FC = () => {
             });
             
             if (csvLines.length > 0) {
-              await stream.write(csvLines.join('\n') + '\n');
+              if (stream) {
+                await stream.write(csvLines.join('\n') + '\n');
+              } else if (isLoggingFallback) {
+                mobileDecodedLogBufferRef.current.push(...csvLines);
+              }
             }
           } catch (e) {
             console.error("Decoded stream write error", e);
@@ -917,6 +985,9 @@ const App: React.FC = () => {
               loggingFileName={loggingFileName}
               onStartLogging={startLogging}
               onStopLogging={stopLogging}
+              isLoggingDecoded={isLoggingDecoded}
+              loggingStartTime={loggingStartTime}
+              loggingFileSize={loggingFileSize}
             />
           )}
         </div>
