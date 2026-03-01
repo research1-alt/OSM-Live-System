@@ -344,12 +344,13 @@ const App: React.FC = () => {
     }, 50);
   }, [frames, library, exportFile]);
 
-  const startLogging = async () => {
+  const startLogging = useCallback(async () => {
     addDebugLog("LOGGING: Attempting to start...");
     
     // Robust check for File System Access API
-    const hasFileSystemAPI = 'showSaveFilePicker' in window && typeof (window as any).showSaveFilePicker === 'function';
-    const isMobile = !hasFileSystemAPI;
+    // Force fallback on mobile user agents even if API is partially present
+    const isMobileUA = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+    const hasFileSystemAPI = !isMobileUA && 'showSaveFilePicker' in window && typeof (window as any).showSaveFilePicker === 'function';
     
     try {
       let writable: any = null;
@@ -410,6 +411,11 @@ const App: React.FC = () => {
       setIsLogging(true);
       addDebugLog(`LOGGING_STARTED: ${fileName}`);
 
+      // Provide immediate feedback
+      if (isMobileUA) {
+        alert("Logging Started! Data is being recorded to memory. Click 'STOP LOGGING' to save the file to your device.");
+      }
+
       // Ask for decoded logging via modal
       if (Object.keys(library.database).length > 0) {
         setShowLoggingModal(true);
@@ -423,9 +429,9 @@ const App: React.FC = () => {
       alert(`Logging Error: ${e.message || 'Failed to initialize logging'}`);
       console.error("Logging start failed", e);
     }
-  };
+  }, [library.database, addDebugLog]);
 
-  const setupDecodedLogging = async () => {
+  const setupDecodedLogging = useCallback(async () => {
     const isMobile = !('showSaveFilePicker' in window);
     try {
       let dWritable: any = null;
@@ -476,9 +482,9 @@ const App: React.FC = () => {
     } finally {
       setShowLoggingModal(false);
     }
-  };
+  }, [library.database, addDebugLog]);
 
-  const stopLogging = async () => {
+  const stopLogging = useCallback(async () => {
     addDebugLog("LOGGING: Stopping session...");
     if (isLoggingFallback) {
       try {
@@ -537,7 +543,7 @@ const App: React.FC = () => {
     mobileLogBufferRef.current = [];
     mobileDecodedLogBufferRef.current = [];
     addDebugLog("LOGGING_STOPPED");
-  };
+  }, [isLoggingFallback, isLoggingDecoded, loggingFileName, addDebugLog]);
 
   const handleNewFrame = useCallback((id: string, dlc: number, data: string[]) => {
     if (isPaused) return;
@@ -820,7 +826,8 @@ const App: React.FC = () => {
             if (traceWriterRef.current) await traceWriterRef.current.write(rows.join('\n') + '\n');
           } catch (e) {
             console.error("Stream write error", e);
-            stopLogging();
+            // Don't call stopLogging directly to avoid dependency cycle
+            setIsLogging(false);
           }
         }
 
@@ -874,7 +881,7 @@ const App: React.FC = () => {
       }
     }, BATCH_UPDATE_INTERVAL);
     return () => clearInterval(interval);
-  }, [showBufferWarning, isLogging, isLoggingFallback, isLoggingDecoded, isPaused, stopLogging]);
+  }, [showBufferWarning, isLogging, isLoggingFallback, isLoggingDecoded, isPaused]);
 
   // Hardware Identification Logging
   useEffect(() => {
