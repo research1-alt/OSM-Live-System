@@ -686,6 +686,7 @@ const App: React.FC = () => {
                     loggedHardwareRef.current = null; // Reset log ref on every manual connect click
                     if ((window as any).NativeBleBridge) {
                       addDebugLog("NATIVE_BLE: Triggering startBleLink...");
+                      setBridgeStatus('connecting'); // Optimistic update for immediate feedback
                       (window as any).NativeBleBridge.startBleLink();
                     } else {
                       connectWebBluetooth();
