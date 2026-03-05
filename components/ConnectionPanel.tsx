@@ -49,27 +49,27 @@ const ConnectionPanel: React.FC<ConnectionPanelProps> = ({
 
   const getStatusDetail = () => {
     if (status === 'connected') return {
-      title: "LINK_ESTABLISHED",
-      desc: `Tactical bridge active via Bluetooth. Telemetry stream is live.`,
+      title: "CONNECTED",
+      desc: `Hardware bridge is active. Telemetry stream is live.`,
       icon: <Wifi className="text-emerald-500" size={24} />,
       color: "bg-emerald-50 border-emerald-100 text-emerald-400"
     };
     if (status === 'connecting') return {
-      title: "HANDSHAKING...",
-      desc: "Negotiating protocol with hardware. Check the popup/port selector.",
+      title: "CONNECTING...",
+      desc: "Establishing link with OSM hardware. Please wait.",
       icon: <Loader2 className="text-indigo-500 animate-spin" size={24} />,
       color: "bg-indigo-50 border-indigo-100 text-indigo-700"
     };
     if (status === 'error') return {
-      title: "BRIDGE_ERROR",
-      desc: "Protocol fault. Reset hardware power and try again.",
+      title: "CONNECTION ERROR",
+      desc: "Hardware link failed. Please reset device and try again.",
       icon: <AlertCircle className="text-red-500" size={24} />,
       color: "bg-red-50 border-red-100 text-red-700"
     };
     
     return {
-      title: "READY_FOR_LINK",
-      desc: "Link status is offline. Select mode to begin.",
+      title: "SEARCHING HARDWARE",
+      desc: "Hardware is currently offline. Tap below to establish link.",
       icon: <WifiOff className="text-slate-300" size={24} />,
       color: "bg-slate-50 border-slate-100 text-slate-500"
     };

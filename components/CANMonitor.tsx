@@ -12,13 +12,6 @@ interface CANMonitorProps {
   autoSaveEnabled?: boolean;
   onToggleAutoSave?: () => void;
   msgPerSec?: number;
-  isLogging?: boolean;
-  loggingFileName?: string | null;
-  onStartLogging?: () => void;
-  onStopLogging?: () => void;
-  isLoggingDecoded?: boolean;
-  loggingStartTime?: number | null;
-  loggingFileSize?: number;
 }
 
 const CANMonitor: React.FC<CANMonitorProps> = ({ 
@@ -29,35 +22,12 @@ const CANMonitor: React.FC<CANMonitorProps> = ({
   isSaving = false,
   autoSaveEnabled = false,
   onToggleAutoSave,
-  msgPerSec = 0,
-  isLogging = false,
-  loggingFileName = null,
-  onStartLogging,
-  onStopLogging,
-  isLoggingDecoded = false,
-  loggingStartTime = null,
-  loggingFileSize = 0
+  msgPerSec = 0
 }) => {
   const [autoScroll, setAutoScroll] = useState(true);
   const [isResetting, setIsResetting] = useState(false);
   const [timeMode, setTimeMode] = useState<'relative' | 'absolute'>('relative');
-  const [duration, setDuration] = useState('0:00');
   const scrollRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    let interval: any;
-    if (isLogging && loggingStartTime) {
-      interval = setInterval(() => {
-        const elapsed = Math.floor((Date.now() - loggingStartTime) / 1000);
-        const mins = Math.floor(elapsed / 60);
-        const secs = elapsed % 60;
-        setDuration(`${mins}:${secs.toString().padStart(2, '0')}`);
-      }, 1000);
-    } else {
-      setDuration('0:00');
-    }
-    return () => clearInterval(interval);
-  }, [isLogging, loggingStartTime]);
 
   const formatFileSize = (bytes: number) => {
     if (bytes < 1024) return `${bytes} B`;
@@ -121,13 +91,14 @@ const CANMonitor: React.FC<CANMonitorProps> = ({
           </div>
           
           <button 
-            onClick={isLogging ? onStopLogging : onStartLogging}
+            onClick={onSaveTrace}
+            disabled={isSaving || frames.length === 0}
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[8px] md:text-[9px] font-orbitron font-black uppercase transition-all border shadow-sm ${
-              isLogging ? 'bg-red-600 text-white animate-pulse border-red-700' : 'bg-white text-indigo-600 border-indigo-100'
+              isSaving ? 'bg-slate-100 text-slate-400 border-slate-200' : 'bg-white text-emerald-600 border-emerald-100 hover:bg-emerald-50'
             }`}
           >
-            <Database size={10} />
-            <span>{isLogging ? 'STOP LOGGING' : 'START LOGGING'}</span>
+            {isSaving ? <Loader2 size={10} className="animate-spin" /> : <Save size={10} />}
+            <span>{isSaving ? 'SAVING...' : 'SAVE TRACE'}</span>
           </button>
 
           <button onClick={() => setTimeMode(timeMode === 'relative' ? 'absolute' : 'relative')} className="p-1.5 rounded-lg text-slate-600 bg-white border border-slate-200">
@@ -168,13 +139,6 @@ const CANMonitor: React.FC<CANMonitorProps> = ({
         <div className="flex flex-wrap gap-3 md:gap-6 justify-center items-center">
           <span className="text-indigo-600 font-bold">{frames.length.toLocaleString()} 60S_BUFFER</span>
           <span className="text-emerald-600 font-bold">{msgPerSec?.toLocaleString() || 0} MSG/SEC</span>
-          {isLogging && (
-            <div className="flex items-center gap-2 text-red-600 font-bold">
-              <div className="w-1.5 h-1.5 bg-red-600 rounded-full animate-pulse"></div>
-              REC: {loggingFileName || 'STREAMING'} ({duration}) [{formatFileSize(loggingFileSize)}]
-              {isLoggingDecoded && <span className="text-emerald-600 ml-1">+ DECODED</span>}
-            </div>
-          )}
         </div>
         <div className="flex items-center gap-4">
           <div className="hidden xs:block">BRIDGE_ACTIVE_LINK</div>

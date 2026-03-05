@@ -78,6 +78,9 @@ public class MainActivity extends AppCompatActivity {
     private boolean isScanning = false;
     private boolean isConnecting = false;
 
+    // Persistent stream for real-time logging
+    private OutputStream activeLogOutputStream = null;
+
     // Temporary storage for file data during picker transition
     private String pendingFileData = "";
 
@@ -99,10 +102,22 @@ public class MainActivity extends AppCompatActivity {
                 if (result.getResultCode() == Activity.RESULT_OK && result.getData() != null) {
                     Uri uri = result.getData().getData();
                     if (uri != null) {
-                        writeDataToUri(uri, pendingFileData);
+                        if (!pendingFileData.isEmpty()) {
+                            writeDataToUri(uri, pendingFileData);
+                            pendingFileData = ""; // Clear buffer
+                        } else {
+                            try {
+                                activeLogOutputStream = getContentResolver().openOutputStream(uri, "wa");
+                                evaluateJs("window.onNativeLogFileReady(true)");
+                            } catch (Exception e) {
+                                Log.e(TAG, "Failed to open stream: " + e.getMessage());
+                                evaluateJs("window.onNativeLogFileReady(false)");
+                            }
+                        }
                     }
+                } else {
+                    evaluateJs("window.onNativeLogFileReady(false)");
                 }
-                pendingFileData = ""; // Clear buffer
             }
     );
 
@@ -117,7 +132,7 @@ public class MainActivity extends AppCompatActivity {
         checkAndRequestPermissions();
         setupWebView();
         
-        webView.loadUrl("https://live-data-rust.vercel.app/");
+        webView.loadUrl("https://ais-pre-sgqgcrpryevvptwknk7en2-127120545089.asia-southeast1.run.app");
         setupBackNavigation();
     }
 
@@ -157,6 +172,36 @@ public class MainActivity extends AppCompatActivity {
         s.setDomStorageEnabled(true);
         s.setGeolocationEnabled(true);
         s.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
+        
+        // Handle file downloads (Base64 data URLs from the web app)
+        webView.setDownloadListener((url, userAgent, contentDisposition, mimetype, contentLength) -> {
+            if (url.startsWith("data:")) {
+                try {
+                    // 1. Extract base64 data
+                    String base64Data = url.substring(url.indexOf(",") + 1);
+                    byte[] fileBytes = android.util.Base64.decode(base64Data, android.util.Base64.DEFAULT);
+                    
+                    // 2. Determine filename
+                    String extension = mimetype.contains("csv") ? ".csv" : ".trc";
+                    String fileName = "OSM_LOG_" + System.currentTimeMillis() + extension;
+                    
+                    // 3. Save to Downloads folder
+                    File path = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS);
+                    File file = new File(path, fileName);
+                    
+                    try (FileOutputStream os = new FileOutputStream(file)) {
+                        os.write(fileBytes);
+                        os.flush();
+                    }
+                    
+                    // 4. Notify user
+                    runOnUiThread(() -> Toast.makeText(MainActivity.this, "Log Saved to Downloads: " + fileName, Toast.LENGTH_LONG).show());
+                } catch (Exception e) {
+                    runOnUiThread(() -> Toast.makeText(MainActivity.this, "Download Failed: " + e.getMessage(), Toast.LENGTH_LONG).show());
+                }
+            }
+        });
+
         webView.addJavascriptInterface(new NativeBleBridge(), "NativeBleBridge");
         webView.addJavascriptInterface(new WebAppInterface(), "AndroidInterface");
         webView.setWebViewClient(new WebViewClient());
@@ -510,6 +555,41 @@ public class MainActivity extends AppCompatActivity {
     public class WebAppInterface {
         @JavascriptInterface
         public boolean isNativeApp() { return true; }
+
+        @JavascriptInterface
+        public void requestLogFile(String suggestedName) {
+            runOnUiThread(() -> {
+                pendingFileData = ""; // Ensure we are in streaming mode
+                Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT);
+                intent.addCategory(Intent.CATEGORY_OPENABLE);
+                intent.setType("text/plain");
+                intent.putExtra(Intent.EXTRA_TITLE, suggestedName);
+                createFileLauncher.launch(intent);
+            });
+        }
+
+        @JavascriptInterface
+        public void appendLogData(String data) {
+            if (activeLogOutputStream != null) {
+                try {
+                    activeLogOutputStream.write(data.getBytes());
+                } catch (Exception e) {
+                    Log.e(TAG, "Append Error: " + e.getMessage());
+                }
+            }
+        }
+
+        @JavascriptInterface
+        public void closeLogFile() {
+            if (activeLogOutputStream != null) {
+                try {
+                    activeLogOutputStream.flush();
+                    activeLogOutputStream.close();
+                } catch (Exception ignored) {}
+                activeLogOutputStream = null;
+            }
+            runOnUiThread(() -> Toast.makeText(MainActivity.this, "Log Saved", Toast.LENGTH_SHORT).show());
+        }
 
         @JavascriptInterface
         public void saveFile(String data, String fileName) {

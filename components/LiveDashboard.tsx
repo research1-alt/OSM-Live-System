@@ -31,13 +31,6 @@ interface LiveDashboardProps {
   msgPerSec: number;
   showBufferWarning: boolean;
   onCloseWarning: () => void;
-  isLogging: boolean;
-  loggingFileName: string | null;
-  onStartLogging: () => void;
-  onStopLogging: () => void;
-  isLoggingDecoded: boolean;
-  loggingStartTime: number | null;
-  loggingFileSize: number;
 }
 
 const LiveDashboard: React.FC<LiveDashboardProps> = (props) => {
@@ -66,12 +59,6 @@ const LiveDashboard: React.FC<LiveDashboardProps> = (props) => {
         </button>
 
         <div className="flex-1 flex flex-col items-center min-w-0">
-          {props.isLogging && (
-            <div className="flex items-center gap-1.5 px-2 py-0.5 bg-red-50 border border-red-100 rounded-full mb-1 animate-pulse">
-              <div className="w-1.5 h-1.5 bg-red-600 rounded-full"></div>
-              <span className="text-[7px] font-orbitron font-black text-red-600 uppercase tracking-wider">REC</span>
-            </div>
-          )}
           <h2 className={`text-[10px] md:text-[12px] font-orbitron font-black uppercase tracking-[0.3em] truncate ${props.isSimulated ? 'text-amber-600' : 'text-indigo-600'}`}>
             {props.isSimulated ? 'HARDWARE_SIMULATION_ACTIVE' : 'HARDWARE_LIVE_SESSION'}
           </h2>
@@ -145,13 +132,6 @@ const LiveDashboard: React.FC<LiveDashboardProps> = (props) => {
               autoSaveEnabled={props.autoSaveEnabled}
               onToggleAutoSave={props.onToggleAutoSave}
               msgPerSec={props.msgPerSec}
-              isLogging={props.isLogging}
-              loggingFileName={props.loggingFileName}
-              onStartLogging={props.onStartLogging}
-              onStopLogging={props.onStopLogging}
-              isLoggingDecoded={props.isLoggingDecoded}
-              loggingStartTime={props.loggingStartTime}
-              loggingFileSize={props.loggingFileSize}
             />
 
             {/* Buffer Warning Pop-up */}
@@ -164,7 +144,7 @@ const LiveDashboard: React.FC<LiveDashboardProps> = (props) => {
                   </div>
                   <h3 className="text-xl font-orbitron font-black text-slate-900 text-center uppercase tracking-tight mb-2">Buffer Critical</h3>
                   <p className="text-slate-500 text-center text-sm mb-8 leading-relaxed">
-                    Trace buffer has reached <span className="text-amber-600 font-bold">950,000</span> frames. Please use <span className="text-indigo-600 font-bold">START LOGGING</span> to record data directly to your disk and clear memory.
+                    Trace buffer has reached <span className="text-amber-600 font-bold">950,000</span> frames. Please save your trace or clear the buffer to maintain performance.
                   </p>
                   <div className="space-y-3">
                     <button 

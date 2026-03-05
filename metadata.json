@@ -1,6 +1,6 @@
 {
   "name": "Remix: Mobile OSM LIVE SYSTEM Final",
-  "description": "Professional CAN-Bus monitoring and diagnostic HUD for OSM hardware. Supports real-time telemetry, trace analysis, and hardware identification.\n",
+  "description": "Professional CAN-Bus monitoring and diagnostic HUD for OSM hardware. Supports real-time telemetry, trace analysis, and hardware identification. Final 03/02/2026\n\n",
   "requestFramePermissions": [
     "serial",
     "bluetooth",
