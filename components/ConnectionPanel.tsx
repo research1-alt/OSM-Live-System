@@ -55,10 +55,10 @@ const ConnectionPanel: React.FC<ConnectionPanelProps> = ({
       color: "bg-emerald-50 border-emerald-100 text-emerald-400"
     };
     if (status === 'connecting') return {
-      title: "CONNECTING...",
-      desc: "Establishing link with OSM hardware. Please wait.",
+      title: "SEARCHING HARDWARE",
+      desc: "Scanning for OSM hardware and establishing link. Please wait.",
       icon: <Loader2 className="text-indigo-500 animate-spin" size={24} />,
-      color: "bg-indigo-50 border-indigo-100 text-indigo-700"
+      color: "bg-indigo-50 border-indigo-100 text-indigo-700 animate-pulse"
     };
     if (status === 'error') return {
       title: "CONNECTION ERROR",
@@ -68,8 +68,8 @@ const ConnectionPanel: React.FC<ConnectionPanelProps> = ({
     };
     
     return {
-      title: "SEARCHING HARDWARE",
-      desc: "Hardware is currently offline. Tap below to establish link.",
+      title: "OFFLINE",
+      desc: "Hardware bridge is currently offline. Tap below to begin search.",
       icon: <WifiOff className="text-slate-300" size={24} />,
       color: "bg-slate-50 border-slate-100 text-slate-500"
     };
@@ -124,6 +124,12 @@ const ConnectionPanel: React.FC<ConnectionPanelProps> = ({
                <p className="text-[10px] md:text-[11px] font-medium leading-relaxed">
                   {currentStatus.desc}
                </p>
+               {status === 'connecting' && (
+                 <div className="mt-4 flex items-center gap-2 text-[10px] font-orbitron font-black text-indigo-500 animate-pulse">
+                   <Search size={14} className="animate-bounce" />
+                   ACTIVE_SCAN_IN_PROGRESS...
+                 </div>
+               )}
                {status === 'connected' && (
                  <div className="mt-4 flex flex-wrap gap-2">
                    <button 
@@ -233,7 +239,7 @@ const ConnectionPanel: React.FC<ConnectionPanelProps> = ({
             >
                {status === 'connecting' ? <Loader2 className="animate-spin" size={24}/> : (
                  <>
-                   {status === 'connected' ? 'TERMINATE_LINK' : 'ESTABLISH_LINK'}
+                   {status === 'connected' ? 'TERMINATE_LINK' : 'START_HARDWARE_SEARCH'}
                    <Zap size={20} />
                  </>
                )}
