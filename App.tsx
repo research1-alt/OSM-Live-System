@@ -52,6 +52,7 @@ const App: React.FC = () => {
   const [isPaused, setIsPaused] = useState(false);
   const [isHwClockSynced, setIsHwClockSynced] = useState(false);
   const [isLoggingToDisk, setIsLoggingToDisk] = useState(false);
+  const [isLoggingMode, setIsLoggingMode] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isSavingDecoded, setIsSavingDecoded] = useState(false);
   const [autoSaveEnabled, setAutoSaveEnabled] = useState(false);
@@ -242,6 +243,7 @@ const App: React.FC = () => {
       addDebugLog("LOGGING: Requesting native file picker...");
       isNativeLoggingRef.current = true;
       android.requestLogFile(suggestedName);
+      setIsLoggingMode(true);
       return;
     }
 
@@ -283,6 +285,7 @@ const App: React.FC = () => {
 
   const stopLoggingToDisk = useCallback(async () => {
     const android = (window as any).AndroidInterface;
+    setIsLoggingMode(false);
     if (isNativeLoggingRef.current && android && android.closeLogFile) {
       // Final flush
       if (loggingQueueRef.current.length > 0) {
@@ -1060,6 +1063,39 @@ const App: React.FC = () => {
   return (
     <div className="h-full w-full font-inter flex flex-col min-h-0 overflow-hidden bg-white">
       {showInstallOverlay && <PWAInstallOverlay onInstall={handleInstallClick} onDismiss={() => setShowInstallOverlay(false)} />}
+
+      {/* Logging Mode Overlay */}
+      {isLoggingMode && (
+        <div className="fixed inset-0 z-[500] bg-slate-950 flex flex-col items-center justify-center p-6 text-center">
+          <div className="w-24 h-24 rounded-full border-4 border-indigo-500/20 border-t-indigo-500 animate-spin mb-8" />
+          <h2 className="text-3xl font-bold text-white mb-2 tracking-tight font-orbitron uppercase">HIGH-PERFORMANCE LOGGING</h2>
+          <p className="text-slate-400 mb-8 max-w-md text-xs font-bold uppercase tracking-widest leading-relaxed">
+            UI rendering is throttled to ensure 100% data integrity and zero fluctuation on disk.
+          </p>
+          
+          <div className="grid grid-cols-2 gap-4 w-full max-w-sm mb-12">
+            <div className="bg-slate-900/50 p-4 rounded-3xl border border-white/5">
+              <div className="text-[8px] text-slate-500 uppercase tracking-widest mb-1 font-orbitron font-black">Frames_Logged</div>
+              <div className="text-2xl font-mono text-white">{allFramesRef.current.length.toLocaleString()}</div>
+            </div>
+            <div className="bg-slate-900/50 p-4 rounded-3xl border border-white/5">
+              <div className="text-[8px] text-slate-500 uppercase tracking-widest mb-1 font-orbitron font-black">Bus_Rate</div>
+              <div className="text-2xl font-mono text-emerald-400">{msgPerSec} fps</div>
+            </div>
+          </div>
+
+          <button
+            onClick={stopLoggingToDisk}
+            className="px-12 py-5 bg-red-600 hover:bg-red-700 text-white rounded-[32px] font-orbitron font-black uppercase tracking-widest transition-all shadow-2xl shadow-red-600/20 active:scale-95"
+          >
+            STOP & SAVE LOG
+          </button>
+          
+          <div className="mt-8 text-[8px] font-orbitron font-black text-slate-600 uppercase tracking-[0.4em]">
+            Direct_to_Disk_Streaming_Active
+          </div>
+        </div>
+      )}
 
       {view === 'home' ? (
         <div className="flex-1 w-full flex flex-col items-center justify-center bg-white px-6 relative overflow-hidden">
