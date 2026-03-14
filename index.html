@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>OSM Live | Tactical Mobile HUD</title>
+    
+    <!-- PWA & Manifest -->
+    <link rel="manifest" href="/manifest.webmanifest">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="OSM HUD">
+    <meta name="theme-color" content="#4f46e5">
+    <link rel="apple-touch-icon" href="https://raw.githubusercontent.com/lucide-react/lucide/main/icons/cpu.svg">
+    
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=JetBrains+Mono:wght@400;700&family=Inter:wght@400;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        :root {
+            --neon-indigo: #4f46e5;
+            --neon-emerald: #059669;
+            --neon-amber: #d97706;
+            --neon-red: #dc2626;
+        }
+        * {
+            -webkit-tap-highlight-color: transparent;
+            box-sizing: border-box;
+        }
+        html, body {
+            height: 100%;
+            margin: 0;
+            padding: 0;
+            background-color: #ffffff;
+            color: #0f172a;
+            overflow: hidden;
+            width: 100vw;
+            position: fixed;
+            overscroll-behavior: none;
+            user-select: none;
+        }
+        #root {
+            height: 100dvh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+        .font-orbitron { font-family: 'Orbitron', sans-serif; }
+        .mono { font-family: 'JetBrains Mono', monospace; }
+        
+        .cyber-grid {
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background-image: 
+                linear-gradient(to right, rgba(79, 70, 229, 0.04) 1px, transparent 1px),
+                linear-gradient(to bottom, rgba(79, 70, 229, 0.04) 1px, transparent 1px);
+            background-size: 50px 50px;
+            z-index: -1;
+        }
+
+        /* Responsive Safe Areas */
+        .safe-pb { padding-bottom: env(safe-area-inset-bottom); }
+        .safe-pt { padding-top: env(safe-area-inset-top); }
+
+        ::-webkit-scrollbar { width: 4px; height: 4px; }
+        ::-webkit-scrollbar-thumb { background: rgba(79, 70, 229, 0.3); border-radius: 10px; }
+        
+        .min-h-0 { min-height: 0; }
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+    </style>
+</head>
+<body>
+    <div class="cyber-grid"></div>
+    <div id="root">
+        <div style="height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; font-family: 'Orbitron', sans-serif; background: white;">
+            <div style="width: 40px; height: 40px; border: 4px solid #4f46e5; border-top-color: transparent; border-radius: 50%; animation: spin 1s linear infinite;"></div>
+            <p style="margin-top: 20px; color: #4f46e5; font-weight: 900; letter-spacing: 0.2em; font-size: 10px;">INITIALIZING_HUD</p>
+            <style>
+                @keyframes spin { to { transform: rotate(360deg); } }
+            </style>
+        </div>
+    </div>
+    <noscript>
+        <div style="height: 100vh; display: flex; align-items: center; justify-content: center; text-align: center; padding: 20px;">
+            <p>JavaScript is required to run the OSM Tactical HUD. Please enable it in your browser settings.</p>
+        </div>
+    </noscript>
+    <script type="module" src="/index.tsx"></script>
+</body>
+</html>
