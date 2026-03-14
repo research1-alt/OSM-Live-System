@@ -473,34 +473,36 @@ public class MainActivity extends AppCompatActivity {
     };
 
     private void connectToDevice(BluetoothDevice device) {
-        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED) {
-            sendToJs("LINK: Contacting hardware...");
-            isConnecting = true;
-            isConnected = false;
-            
-            // Connection timeout guard
-            mainHandler.postDelayed(() -> {
-                if (isConnecting && !isConnected) {
-                    sendToJs("ERROR: Connection handshake timed out. Purging stack...");
-                    cleanupBluetooth();
-                }
-            }, 12000);
+        runOnUiThread(() -> {
+            if (ActivityCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED) {
+                sendToJs("LINK: Contacting hardware (" + device.getAddress() + ")...");
+                isConnecting = true;
+                isConnected = false;
+                
+                // Connection timeout guard
+                mainHandler.postDelayed(() -> {
+                    if (isConnecting && !isConnected) {
+                        sendToJs("ERROR: Connection handshake timed out. Purging stack...");
+                        cleanupBluetooth();
+                    }
+                }, 15000); // Increased to 15s
 
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                bluetoothGatt = device.connectGatt(this, false, gattCallback, BluetoothDevice.TRANSPORT_LE);
-            } else {
-                bluetoothGatt = device.connectGatt(this, false, gattCallback);
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                    bluetoothGatt = device.connectGatt(this, false, gattCallback, BluetoothDevice.TRANSPORT_LE);
+                } else {
+                    bluetoothGatt = device.connectGatt(this, false, gattCallback);
+                }
+                
+                if (bluetoothGatt == null) {
+                    isConnecting = false;
+                    sendToJs("ERROR: Failed to create GATT client.");
+                    return;
+                }
+                
+                // Attempt to refresh cache
+                refreshDeviceCache(bluetoothGatt);
             }
-            
-            if (bluetoothGatt == null) {
-                isConnecting = false;
-                sendToJs("ERROR: Failed to create GATT client.");
-                return;
-            }
-            
-            // Attempt to refresh cache
-            refreshDeviceCache(bluetoothGatt);
-        }
+        });
     }
 
     private void refreshDeviceCache(BluetoothGatt gatt) {
@@ -522,10 +524,7 @@ public class MainActivity extends AppCompatActivity {
             Log.d(TAG, "onConnectionStateChange: status=" + status + " newState=" + newState);
             
             if (status != BluetoothGatt.GATT_SUCCESS) {
-                String errorMsg = "GATT_ERROR: Status " + status;
-                if (status == 133) errorMsg += " (Stack Busy/Timeout)";
-                if (status == 8) errorMsg += " (Connection Timeout)";
-                if (status == 19) errorMsg += " (Remote Disconnect)";
+                String errorMsg = "GATT_ERROR: " + decodeGattStatus(status);
                 
                 sendToJs(errorMsg + ". Resetting...");
                 isConnecting = false;
@@ -553,13 +552,18 @@ public class MainActivity extends AppCompatActivity {
                     // Delay MTU to allow internal stack preparation
                     mainHandler.postDelayed(() -> {
                         if (bluetoothGatt != null && ActivityCompat.checkSelfPermission(MainActivity.this, Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED) {
+                            sendToJs("LINK: Requesting MTU...");
                             boolean success = bluetoothGatt.requestMtu(512);
                             if (!success) {
-                                sendToJs("WARN: MTU request failed. Falling back to service discovery...");
-                                bluetoothGatt.discoverServices();
+                                sendToJs("WARN: MTU request rejected. Discovering services with default MTU...");
+                                mainHandler.postDelayed(() -> {
+                                    if (bluetoothGatt != null && ActivityCompat.checkSelfPermission(MainActivity.this, Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED) {
+                                        bluetoothGatt.discoverServices();
+                                    }
+                                }, 600);
                             }
                         }
-                    }, 250); // Increased delay for stability
+                    }, 800); // Increased delay for stack stability
                 }
             } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
                 isConnecting = false;
@@ -577,13 +581,14 @@ public class MainActivity extends AppCompatActivity {
 
         @Override
         public void onMtuChanged(BluetoothGatt gatt, int mtu, int status) {
-            sendToJs("LINK: MTU Sync (" + mtu + " bytes)");
+            sendToJs("LINK: MTU Synced to " + mtu + " bytes.");
             // Crucial: Wait before discovering services after MTU change
             mainHandler.postDelayed(() -> {
                 if (ActivityCompat.checkSelfPermission(MainActivity.this, Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED) {
+                    sendToJs("LINK: Discovering services...");
                     gatt.discoverServices();
                 }
-            }, 100); // Reduced from 150ms
+            }, 600); // Increased delay
         }
 
         @Override
@@ -788,6 +793,27 @@ public class MainActivity extends AppCompatActivity {
 
         private void onSaveComplete(String fileName) {
             runOnUiThread(() -> Toast.makeText(MainActivity.this, "Exported: " + fileName, Toast.LENGTH_SHORT).show());
+        }
+    }
+
+    private String decodeGattStatus(int status) {
+        switch (status) {
+            case 0: return "GATT_SUCCESS";
+            case 2: return "GATT_READ_NOT_PERMITTED";
+            case 3: return "GATT_WRITE_NOT_PERMITTED";
+            case 5: return "GATT_INSUFFICIENT_AUTHENTICATION";
+            case 6: return "GATT_REQUEST_NOT_SUPPORTED";
+            case 7: return "GATT_INVALID_OFFSET";
+            case 8: return "GATT_INSUFFICIENT_AUTHORIZATION (Timeout)";
+            case 13: return "GATT_INVALID_ATTRIBUTE_LENGTH";
+            case 15: return "GATT_INSUFFICIENT_ENCRYPTION";
+            case 19: return "GATT_CONN_TERMINATED_BY_PEER";
+            case 22: return "GATT_CONN_TERMINATED_BY_LOCAL_HOST";
+            case 34: return "GATT_CONN_LMP_TIMEOUT";
+            case 62: return "GATT_CONN_FAILED_ESTABLISHMENT";
+            case 133: return "GATT_ERROR (133 - Stack Busy/Internal Failure)";
+            case 257: return "GATT_FAILURE";
+            default: return "GATT_STATUS_CODE_" + status;
         }
     }
 }

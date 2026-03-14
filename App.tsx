@@ -51,7 +51,6 @@ const App: React.FC = () => {
   const [latestFrames, setLatestFrames] = useState<Record<string, CANFrame>>({});
   const [isPaused, setIsPaused] = useState(false);
   const [isHwClockSynced, setIsHwClockSynced] = useState(false);
-  const [isLoggingToDisk, setIsLoggingToDisk] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isSavingDecoded, setIsSavingDecoded] = useState(false);
   const [autoSaveEnabled, setAutoSaveEnabled] = useState(false);
@@ -118,11 +117,6 @@ const App: React.FC = () => {
   const serialWriterRef = useRef<any>(null);
   const webBluetoothDeviceRef = useRef<any>(null);
   const bleRxCharacteristicRef = useRef<any>(null);
-  const loggingFileHandleRef = useRef<any>(null);
-  const loggingStreamRef = useRef<any>(null);
-  const logMsgCounterRef = useRef<number>(0);
-  const loggingQueueRef = useRef<CANFrame[]>([]);
-  const isNativeLoggingRef = useRef<boolean>(false);
   const keepReadingRef = useRef(false);
   const connectionTimeoutRef = useRef<any>(null);
 
@@ -232,158 +226,6 @@ const App: React.FC = () => {
       delete schedulesRef.current[id];
     }
   };
-
-  const startLoggingToDisk = useCallback(async () => {
-    const android = (window as any).AndroidInterface;
-    const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-    const suggestedName = `OSM_LIVE_LOG_${stamp}.trc`;
-
-    if (android && android.requestLogFile) {
-      addDebugLog("LOGGING: Requesting native file picker...");
-      isNativeLoggingRef.current = true;
-      android.requestLogFile(suggestedName);
-      return;
-    }
-
-    if (!('showSaveFilePicker' in window)) {
-      alert("Direct logging is not supported in this browser. Please use Chrome or Edge.");
-      return;
-    }
-
-    try {
-      const handle = await (window as any).showSaveFilePicker({
-        suggestedName,
-        types: [{ 
-          description: 'PCAN Trace File (.trc)', 
-          accept: { 'application/octet-stream': ['.trc'] } 
-        }],
-      });
-
-      const writable = await handle.createWritable();
-      
-      // Write TRC Header
-      const startDate = new Date();
-      const excelSerialDate = (startDate.getTime() / (1000 * 60 * 60 * 24)) + 25569.0;
-      let header = ";$FILEVERSION=2.0\n";
-      header += `;$STARTTIME=${excelSerialDate.toFixed(10)}\n`;
-      header += ";$COLUMNS=N,O,T,I,d,l,D\n;\n";
-      
-      await writable.write(header);
-      
-      logMsgCounterRef.current = 0;
-      loggingFileHandleRef.current = handle;
-      loggingStreamRef.current = writable;
-      setIsLoggingToDisk(true);
-      addDebugLog("LOGGING: Direct-to-disk logging started.");
-    } catch (e: any) {
-      console.error("Failed to start logging:", e);
-      addDebugLog(`LOGGING_ERROR: ${e.message}`);
-    }
-  }, [addDebugLog]);
-
-  const stopLoggingToDisk = useCallback(async () => {
-    const android = (window as any).AndroidInterface;
-    if (isNativeLoggingRef.current && android && android.closeLogFile) {
-      // Final flush
-      if (loggingQueueRef.current.length > 0) {
-        let trcLines = "";
-        loggingQueueRef.current.forEach((frame) => {
-          logMsgCounterRef.current++;
-          const msgNum = logMsgCounterRef.current.toString().padStart(7, ' ');
-          const timeOffset = (frame.timestamp).toFixed(3).padStart(13, ' ');
-          const idStr = frame.id.replace('0x', '').toUpperCase().padStart(8, ' ');
-          const rxtx = frame.direction.padStart(2, ' ');
-          const dlcStr = frame.dlc.toString().padStart(1, ' ');
-          const dataBytes = frame.data.join(' ');
-          trcLines += `${msgNum} ${timeOffset} DT ${idStr} ${rxtx} ${dlcStr}  ${dataBytes}\n`;
-        });
-        android.appendLogData(trcLines);
-        loggingQueueRef.current = [];
-      }
-      android.closeLogFile();
-      setIsLoggingToDisk(false);
-      isNativeLoggingRef.current = false;
-      addDebugLog("LOGGING: Native log file closed.");
-      return;
-    }
-
-    if (loggingStreamRef.current) {
-      try {
-        await loggingStreamRef.current.close();
-        addDebugLog("LOGGING: Log file saved and closed.");
-      } catch (e: any) {
-        console.error("Failed to close log stream:", e);
-      } finally {
-        loggingStreamRef.current = null;
-        loggingFileHandleRef.current = null;
-        setIsLoggingToDisk(false);
-      }
-    }
-  }, [addDebugLog]);
-
-  // High-performance 16ms logging cycle as requested
-  useEffect(() => {
-    if (isLoggingToDisk) {
-      const interval = setInterval(() => {
-        if (loggingQueueRef.current.length === 0) return;
-        
-        const batch = [...loggingQueueRef.current];
-        loggingQueueRef.current = [];
-        
-        let trcLines = "";
-        batch.forEach((frame) => {
-          logMsgCounterRef.current++;
-          const msgNum = logMsgCounterRef.current.toString().padStart(7, ' ');
-          const timeOffset = (frame.timestamp).toFixed(3).padStart(13, ' ');
-          const idStr = frame.id.replace('0x', '').toUpperCase().padStart(8, ' ');
-          const rxtx = frame.direction.padStart(2, ' ');
-          const dlcStr = frame.dlc.toString().padStart(1, ' ');
-          const dataBytes = frame.data.join(' ');
-          trcLines += `${msgNum} ${timeOffset} DT ${idStr} ${rxtx} ${dlcStr}  ${dataBytes}\n`;
-        });
-
-        const android = (window as any).AndroidInterface;
-        if (isNativeLoggingRef.current && android && android.appendLogData) {
-          android.appendLogData(trcLines);
-        } else if (loggingStreamRef.current) {
-          loggingStreamRef.current.write(trcLines).catch((e: any) => {
-            console.error("Stream write error:", e);
-          });
-        }
-      }, 16); // 16ms cycle for 60fps-equivalent processing
-      return () => clearInterval(interval);
-    }
-  }, [isLoggingToDisk]);
-
-  // Handle Native Callbacks
-  useEffect(() => {
-    (window as any).onNativeLogFileReady = (success: boolean) => {
-      if (success) {
-        const android = (window as any).AndroidInterface;
-        if (android && android.appendLogData) {
-          // Write TRC Header via native bridge
-          const startDate = new Date();
-          const excelSerialDate = (startDate.getTime() / (1000 * 60 * 60 * 24)) + 25569.0;
-          let header = ";$FILEVERSION=2.0\n";
-          header += `;$STARTTIME=${excelSerialDate.toFixed(10)}\n`;
-          header += ";$COLUMNS=N,O,T,I,d,l,D\n;\n";
-          
-          android.appendLogData(header);
-          logMsgCounterRef.current = 0;
-          setIsLoggingToDisk(true);
-          addDebugLog("LOGGING: Native direct-to-disk logging active.");
-        }
-      } else {
-        setIsLoggingToDisk(false);
-        isNativeLoggingRef.current = false;
-        addDebugLog("LOGGING: Native file picker cancelled or failed.");
-      }
-    };
-
-    return () => {
-      delete (window as any).onNativeLogFileReady;
-    };
-  }, [addDebugLog]);
 
   const exportFile = useCallback(async (data: string, fileName: string, mimeType: string = '*/*') => {
     const android = (window as any).AndroidInterface;
@@ -620,14 +462,9 @@ const App: React.FC = () => {
       transportLatency: latency > 0 ? Number(latency.toFixed(1)) : 0
     };
 
-    // Always update internal state for data consistency and logging
+    // Always update internal state for data consistency
     frameMapRef.current.set(normId, newFrame);
     
-    // Write to disk if logging is active
-    if (isLoggingToDisk) {
-      loggingQueueRef.current.push(newFrame);
-    }
-
     allFramesRef.current.push(newFrame);
     
     // Efficient buffer management: Only prune when we exceed the limit by 10%
@@ -641,7 +478,7 @@ const App: React.FC = () => {
     if (!isPaused) {
       pendingFramesRef.current.push(newFrame);
     }
-  }, [isPaused, isLoggingToDisk, hardwareId, addDebugLog]);
+  }, [isPaused, hardwareId, addDebugLog]);
 
   // Native BLE Bridge Callbacks
   useEffect(() => {
@@ -945,20 +782,15 @@ const App: React.FC = () => {
         setLatestFrames(prev => ({ ...prev, ...latest }));
 
         // Update Trace List (the scrolling list)
-        // If logging is active, we throttle the UI list updates to save CPU for the logging engine
-        const shouldUpdateList = !isLoggingToDisk || Math.random() > 0.8;
-        
-        if (shouldUpdateList) {
-          setFrames(prev => {
-            const next = [...prev, ...batch];
-            // Keep UI buffer small (1000 frames) as requested for "less load"
-            return next.length > 1000 ? next.slice(-1000) : next;
-          });
-        }
+        setFrames(prev => {
+          const next = [...prev, ...batch];
+          // Keep UI buffer small (1000 frames) as requested for "less load"
+          return next.length > 1000 ? next.slice(-1000) : next;
+        });
       }
     }, 16); // 16ms cycle (60fps) for fluent processing
     return () => clearInterval(interval);
-  }, [isLoggingToDisk]);
+  }, []);
 
   // Hardware Identification Logging
   useEffect(() => {
@@ -1162,9 +994,6 @@ const App: React.FC = () => {
               }} onSaveTrace={() => handleSaveTrace(false)}
               onSaveDecoded={() => handleSaveDecoded(false)} isSavingDecoded={isSavingDecoded}
               msgPerSec={msgPerSec}
-              isLoggingToDisk={isLoggingToDisk}
-              onStartLogging={startLoggingToDisk}
-              onStopLogging={stopLoggingToDisk}
               showBufferWarning={allFramesRef.current.length > 950000}
               onCloseWarning={() => {}}
               syncStatus={syncStatus}

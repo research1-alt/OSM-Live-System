@@ -12,9 +12,6 @@ interface CANMonitorProps {
   autoSaveEnabled?: boolean;
   onToggleAutoSave?: () => void;
   msgPerSec?: number;
-  isLoggingToDisk?: boolean;
-  onStartLogging?: () => void;
-  onStopLogging?: () => void;
   onExportWideCsv?: () => void;
 }
 
@@ -27,9 +24,6 @@ const CANMonitor: React.FC<CANMonitorProps> = ({
   autoSaveEnabled = false,
   onToggleAutoSave,
   msgPerSec = 0,
-  isLoggingToDisk = false,
-  onStartLogging,
-  onStopLogging,
   onExportWideCsv
 }) => {
   const [autoScroll, setAutoScroll] = useState(true);
@@ -97,18 +91,6 @@ const CANMonitor: React.FC<CANMonitorProps> = ({
           <div className="flex items-center gap-1.5 px-2 py-1 bg-white rounded border border-slate-200 text-[8px] md:text-[9px] font-orbitron font-black text-indigo-600 shadow-sm">
             <Terminal size={10} /> <span className="hidden xs:inline">TRACE_HUD</span>
           </div>
-          
-          <button 
-            onClick={isLoggingToDisk ? onStopLogging : onStartLogging}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[8px] md:text-[9px] font-orbitron font-black uppercase transition-all border shadow-sm ${
-              isLoggingToDisk 
-                ? 'bg-red-600 text-white border-red-700 animate-pulse' 
-                : 'bg-indigo-600 text-white border-indigo-700 hover:bg-indigo-700'
-            }`}
-          >
-            {isLoggingToDisk ? <X size={10} /> : <Zap size={10} />}
-            <span>{isLoggingToDisk ? 'STOP LOGGING' : 'START LOGGING'}</span>
-          </button>
 
           <button onClick={() => setTimeMode(timeMode === 'relative' ? 'absolute' : 'relative')} className="p-1.5 rounded-lg text-slate-600 bg-white border border-slate-200">
             {timeMode === 'relative' ? <Timer size={12} /> : <Clock size={12} />}

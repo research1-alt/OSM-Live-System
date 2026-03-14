@@ -32,9 +32,6 @@ interface LiveDashboardProps {
   msgPerSec: number;
   showBufferWarning: boolean;
   onCloseWarning: () => void;
-  isLoggingToDisk?: boolean;
-  onStartLogging?: () => void;
-  onStopLogging?: () => void;
   onExportWideCsv?: () => void;
   syncStatus?: 'idle' | 'syncing' | 'success' | 'error';
   onManualSync?: () => void;
@@ -147,9 +144,6 @@ const LiveDashboard: React.FC<LiveDashboardProps> = (props) => {
               autoSaveEnabled={props.autoSaveEnabled}
               onToggleAutoSave={props.onToggleAutoSave}
               msgPerSec={props.msgPerSec}
-              isLoggingToDisk={props.isLoggingToDisk}
-              onStartLogging={props.onStartLogging}
-              onStopLogging={props.onStopLogging}
               onExportWideCsv={props.onExportWideCsv}
             />
 
