@@ -546,18 +546,29 @@ const App: React.FC = () => {
               }
 
               // 2. Aggressive Hex-Hunter: Extract all 2-digit hex pairs
-              // This handles spaces, commas, or continuous strings (001122...)
-              let dataParts = rawDataStr.match(/[0-9A-Fa-f]{2}/g) || [];
+              let allHexPairs = rawDataStr.match(/[0-9A-Fa-f]{2}/g) || [];
               
-              // 3. Diagnostic Logging: Help the user see the raw data arriving
-              // We log every 50 frames to avoid flooding but provide enough info
+              // 3. DLC-Aware Separation:
+              // Take only the number of bytes specified by DLC as CAN data
+              let dataParts = allHexPairs.slice(0, dlc);
+              // Any remaining bytes are likely a binary hardware timestamp (4-byte footer)
+              const extraBytes = allHexPairs.slice(dlc);
+
+              if (extraBytes.length >= 4 && !tsMatch) {
+                // Interpret the first 4 extra bytes as a big-endian microsecond timestamp
+                const hexTs = extraBytes.slice(0, 4).join('');
+                const micros = parseInt(hexTs, 16);
+                if (!isNaN(micros)) {
+                  frameHwTimestamp = micros / 1000.0;
+                }
+              }
+              
+              // 4. Diagnostic Logging: Help the user see the raw data arriving
               if (allFramesRef.current.length % 50 === 0) {
-                addDebugLog(`DIAG: ID=${id} DLC=${dlc} RawDataArea="${rawDataStr.substring(0, 40)}" Found=${dataParts.length} Bytes`);
+                addDebugLog(`DIAG: ID=${id} DLC=${dlc} Data=${dataParts.length} Extra=${extraBytes.length}`);
               }
 
-              // 4. Diagnostic Padding: If hardware sends fewer bytes than the DLC claims, 
-              // pad with '??' to make the mismatch visible to the user.
-              // This is CRITICAL for identifying if the hardware is under-sending.
+              // 5. Diagnostic Padding: If hardware sends fewer bytes than the DLC claims
               while (dataParts.length < dlc && dataParts.length < 8) {
                 dataParts.push("??");
               }
