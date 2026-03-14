@@ -513,23 +513,33 @@ const App: React.FC = () => {
             if (parts.length >= 3) {
               const id = parts[0];
               const dlc = parseInt(parts[1]);
-              
-              // Support both space and comma delimiters for data bytes
-              let dataParts = parts[2].split(/[\s,]+/).filter(p => p.trim().length > 0);
+              let rawDataStr = parts[2];
               
               // Support for "Serial Process" - Hardware Level Timestamping
               let frameHwTimestamp = currentBatchTimestampRef.current;
               
-              // Check if TS: is accidentally in the data parts (some firmware versions do this)
-              const tsIndex = dataParts.findIndex(p => p.toUpperCase().startsWith('TS:'));
-              if (tsIndex !== -1) {
-                const tsPart = dataParts[tsIndex];
-                const tsVal = parseFloat(tsPart.split(':')[1]);
-                if (!isNaN(tsVal)) {
-                  frameHwTimestamp = tsVal;
-                }
-                // Remove the TS part from data
-                dataParts = dataParts.filter((_, i) => i !== tsIndex);
+              // 1. Robust TS extraction: Find TS: anywhere in the data string
+              const tsMatch = rawDataStr.match(/TS:(\d+\.?\d*)/i);
+              if (tsMatch) {
+                const tsVal = parseFloat(tsMatch[1]);
+                if (!isNaN(tsVal)) frameHwTimestamp = tsVal;
+                // Replace the TS part with a space to avoid merging adjacent bytes
+                rawDataStr = rawDataStr.replace(/TS:\d+\.?\d*/i, ' ');
+              }
+
+              // 2. Aggressive Hex-Hunter: Extract all 2-digit hex pairs
+              // This handles spaces, commas, or continuous strings (001122...)
+              let dataParts = rawDataStr.match(/[0-9A-Fa-f]{2}/g) || [];
+              
+              // 3. Diagnostic Logging: Help the user see the raw data arriving
+              if (allFramesRef.current.length % 200 === 0) {
+                addDebugLog(`DIAG: ID=${id} DLC=${dlc} Raw="${parts[2].substring(0, 30)}" Found=${dataParts.length} Bytes`);
+              }
+
+              // 4. Diagnostic Padding: If hardware sends fewer bytes than the DLC claims, 
+              // pad with '??' to make the mismatch visible to the user.
+              while (dataParts.length < dlc && dataParts.length < 8) {
+                dataParts.push("??");
               }
 
               if (parts.length >= 4) {
