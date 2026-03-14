@@ -485,14 +485,28 @@ const App: React.FC = () => {
     if (typeof window !== 'undefined') {
       (window as any).onNativeBleData = (data: string) => {
         const arrivalTime = performance.now();
+        
+        // DIAGNOSTIC: Log the raw chunk size from Native
+        if (allFramesRef.current.length % 100 === 0) {
+          addDebugLog(`NATIVE_RAW: Received chunk of ${data.length} chars. Buffer size: ${bleBufferRef.current.length}`);
+        }
+
         bleBufferRef.current += data;
+        
         if (bleBufferRef.current.includes('\n')) {
           const lines = bleBufferRef.current.split('\n');
+          // Keep the last partial line in the buffer
           bleBufferRef.current = lines.pop() || "";
+          
           for (const line of lines) {
             const trimmed = line.trim();
             if (!trimmed) continue;
             
+            // DIAGNOSTIC: Log full line length
+            if (allFramesRef.current.length % 100 === 0) {
+              addDebugLog(`NATIVE_LINE: Full line reassembled: ${trimmed.length} chars. Content: ${trimmed.substring(0, 20)}...`);
+            }
+
             if (trimmed.startsWith('TS:')) {
               const javaTs = parseFloat(trimmed.split(':')[1]);
               if (!isNaN(javaTs)) {
