@@ -509,11 +509,15 @@ const App: React.FC = () => {
               continue;
             }
             
-            const parts = trimmed.split('#');
-            if (parts.length >= 3) {
-              const id = parts[0];
-              const dlc = parseInt(parts[1]);
-              let rawDataStr = parts[2];
+            // NEW ROBUST PARSER: Substring-based to avoid issues with extra '#' delimiters
+            const firstHash = trimmed.indexOf('#');
+            const secondHash = trimmed.indexOf('#', firstHash + 1);
+            
+            if (firstHash !== -1 && secondHash !== -1) {
+              const id = trimmed.substring(0, firstHash);
+              const dlcStr = trimmed.substring(firstHash + 1, secondHash);
+              const dlc = parseInt(dlcStr);
+              let rawDataStr = trimmed.substring(secondHash + 1);
               
               // Support for "Serial Process" - Hardware Level Timestamping
               let frameHwTimestamp = currentBatchTimestampRef.current;
@@ -532,18 +536,22 @@ const App: React.FC = () => {
               let dataParts = rawDataStr.match(/[0-9A-Fa-f]{2}/g) || [];
               
               // 3. Diagnostic Logging: Help the user see the raw data arriving
-              if (allFramesRef.current.length % 200 === 0) {
-                addDebugLog(`DIAG: ID=${id} DLC=${dlc} Raw="${parts[2].substring(0, 30)}" Found=${dataParts.length} Bytes`);
+              // We log every 50 frames to avoid flooding but provide enough info
+              if (allFramesRef.current.length % 50 === 0) {
+                addDebugLog(`DIAG: ID=${id} DLC=${dlc} RawDataArea="${rawDataStr.substring(0, 40)}" Found=${dataParts.length} Bytes`);
               }
 
               // 4. Diagnostic Padding: If hardware sends fewer bytes than the DLC claims, 
               // pad with '??' to make the mismatch visible to the user.
+              // This is CRITICAL for identifying if the hardware is under-sending.
               while (dataParts.length < dlc && dataParts.length < 8) {
                 dataParts.push("??");
               }
 
-              if (parts.length >= 4) {
-                const esp32Micros = parseInt(parts[3]);
+              // Support for 4th field (micros) if it exists (legacy support)
+              const remainingParts = rawDataStr.split('#');
+              if (remainingParts.length >= 2) {
+                const esp32Micros = parseInt(remainingParts[1]);
                 if (!isNaN(esp32Micros)) {
                   frameHwTimestamp = esp32Micros / 1000.0;
                 }
