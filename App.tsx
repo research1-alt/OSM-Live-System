@@ -513,11 +513,24 @@ const App: React.FC = () => {
             if (parts.length >= 3) {
               const id = parts[0];
               const dlc = parseInt(parts[1]);
-              const dataParts = parts[2].split(',');
+              let dataParts = parts[2].split(',');
               
               // Support for "Serial Process" - Hardware Level Timestamping
               // If the ESP32 sends a 4th field (micros), we prioritize it over the phone's arrival time
               let frameHwTimestamp = currentBatchTimestampRef.current;
+              
+              // Check if TS: is accidentally in the data parts (some firmware versions do this)
+              const tsIndex = dataParts.findIndex(p => p.startsWith('TS:'));
+              if (tsIndex !== -1) {
+                const tsPart = dataParts[tsIndex];
+                const tsVal = parseFloat(tsPart.split(':')[1]);
+                if (!isNaN(tsVal)) {
+                  frameHwTimestamp = tsVal;
+                }
+                // Remove the TS part from data
+                dataParts = dataParts.filter((_, i) => i !== tsIndex);
+              }
+
               if (parts.length >= 4) {
                 const esp32Micros = parseInt(parts[3]);
                 if (!isNaN(esp32Micros)) {
