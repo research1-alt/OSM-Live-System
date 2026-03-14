@@ -78,6 +78,7 @@ public class MainActivity extends AppCompatActivity {
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private boolean isScanning = false;
     private boolean isConnecting = false;
+    private boolean isConnected = false;
     private String lastDeviceAddress = null;
     private static final String PREFS_NAME = "OSM_BLE_PREFS";
     private static final String KEY_LAST_ADDR = "last_device_addr";
@@ -141,7 +142,7 @@ public class MainActivity extends AppCompatActivity {
         checkAndRequestPermissions();
         setupWebView();
         
-        webView.loadUrl("https://ais-pre-toqlyfvcyq4ckq54q77wf3-127120545089.asia-southeast1.run.app");
+        webView.loadUrl("https://ais-dev-toqlyfvcyq4ckq54q77wf3-127120545089.asia-southeast1.run.app");
         setupBackNavigation();
     }
 
@@ -255,49 +256,61 @@ public class MainActivity extends AppCompatActivity {
             runOnUiThread(() -> {
                 cleanupBluetooth();
                 isConnecting = false;
+                isConnected = false;
                 
                 // Immediately notify UI that we are starting the connection process
                 evaluateJs("window.onNativeBleStatus('connecting')");
                 
-                if (bluetoothAdapter == null) {
-                    sendToJs("ERROR: Bluetooth Hardware not detected on this system.");
-                    return;
+                // Check if Location is enabled (Required for BLE on many Android versions)
+                LocationManager lm = (LocationManager) getSystemService(Context.LOCATION_SERVICE);
+                boolean gpsEnabled = false;
+                try { gpsEnabled = lm.isProviderEnabled(LocationManager.GPS_PROVIDER); } catch(Exception ignored) {}
+                if (!gpsEnabled) {
+                    sendToJs("WARN: Location services are OFF. BLE discovery might fail.");
                 }
 
-                if (!bluetoothAdapter.isEnabled()) {
-                    sendToJs("STATE: Bluetooth is OFF. Requesting activation...");
-                    Intent enableBtIntent = new Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE);
-                    if (ActivityCompat.checkSelfPermission(MainActivity.this, Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED) {
-                        enableBtLauncher.launch(enableBtIntent);
-                    } else {
-                        sendToJs("ERROR: Missing BLUETOOTH_CONNECT permission.");
-                    }
-                    return;
-                }
-
-                // Check for cached device for "Instant Connect"
-                if (lastDeviceAddress == null) {
-                    lastDeviceAddress = getSharedPreferences(PREFS_NAME, MODE_PRIVATE).getString(KEY_LAST_ADDR, null);
-                }
-
-                if (lastDeviceAddress != null) {
-                    sendToJs("LINK: Attempting fast reconnect to " + lastDeviceAddress + "...");
-                    BluetoothDevice device = bluetoothAdapter.getRemoteDevice(lastDeviceAddress);
-                    if (device != null) {
-                        connectToDevice(device);
-                        
-                        // Set a timeout for fast reconnect, if it fails, start scanning
-                        mainHandler.postDelayed(() -> {
-                            if (bluetoothGatt == null && !isScanning) {
-                                sendToJs("WARN: Fast reconnect failed. Falling back to scan...");
-                                startScan();
-                            }
-                        }, 3000);
+                // Add a small delay after cleanup to let the stack breathe
+                mainHandler.postDelayed(() -> {
+                    if (bluetoothAdapter == null) {
+                        sendToJs("ERROR: Bluetooth Hardware not detected on this system.");
                         return;
                     }
-                }
 
-                startScan();
+                    if (!bluetoothAdapter.isEnabled()) {
+                        sendToJs("STATE: Bluetooth is OFF. Requesting activation...");
+                        Intent enableBtIntent = new Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE);
+                        if (ActivityCompat.checkSelfPermission(MainActivity.this, Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED) {
+                            enableBtLauncher.launch(enableBtIntent);
+                        } else {
+                            sendToJs("ERROR: Missing BLUETOOTH_CONNECT permission.");
+                        }
+                        return;
+                    }
+
+                    // Check for cached device for "Instant Connect"
+                    if (lastDeviceAddress == null) {
+                        lastDeviceAddress = getSharedPreferences(PREFS_NAME, MODE_PRIVATE).getString(KEY_LAST_ADDR, null);
+                    }
+
+                    if (lastDeviceAddress != null) {
+                        sendToJs("LINK: Attempting fast reconnect to " + lastDeviceAddress + "...");
+                        BluetoothDevice device = bluetoothAdapter.getRemoteDevice(lastDeviceAddress);
+                        if (device != null) {
+                            connectToDevice(device);
+                            
+                            // Set a timeout for fast reconnect, if it fails, start scanning
+                            mainHandler.postDelayed(() -> {
+                                if (bluetoothGatt == null && !isScanning) {
+                                    sendToJs("WARN: Fast reconnect failed. Falling back to scan...");
+                                    startScan();
+                                }
+                            }, 3000);
+                            return;
+                        }
+                    }
+
+                    startScan();
+                }, 400); // 400ms delay after cleanup
             });
         }
 
@@ -323,24 +336,46 @@ public class MainActivity extends AppCompatActivity {
                 try {
                     isScanning = true;
                     bluetoothLeScanner.startScan(filters, settings, scanCallback);
-                    sendToJs("SCANNING: Hunting for OSM hardware...");
+                    sendToJs("SCANNING: Hunting for OSM hardware (Filtered)...");
                     
                     mainHandler.postDelayed(() -> {
-                        if (isScanning) {
+                        if (isScanning && bluetoothGatt == null) {
                             stopCurrentScan();
-                            sendToJs("TIMEOUT: No compatible device found. Check device name.");
+                            sendToJs("WARN: No OSM device found with filters. Retrying without filters...");
+                            startUnfilteredScan();
+                        }
+                    }, 5000);
+                } catch (Exception e) {
+                    startUnfilteredScan();
+                }
+            } else {
+                sendToJs("ERROR: Missing BLUETOOTH_SCAN permission.");
+            }
+        }
+
+        private void startUnfilteredScan() {
+            if (bluetoothLeScanner == null) return;
+            
+            ScanSettings settings = new ScanSettings.Builder()
+                    .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
+                    .build();
+
+            if (ActivityCompat.checkSelfPermission(MainActivity.this, Manifest.permission.BLUETOOTH_SCAN) == PackageManager.PERMISSION_GRANTED) {
+                try {
+                    isScanning = true;
+                    bluetoothLeScanner.startScan(null, settings, scanCallback);
+                    sendToJs("SCANNING: Broad search active...");
+                    
+                    mainHandler.postDelayed(() -> {
+                        if (isScanning && bluetoothGatt == null) {
+                            stopCurrentScan();
+                            sendToJs("TIMEOUT: No compatible device found. Check if device is advertising.");
                             evaluateJs("window.onNativeBleStatus('disconnected')");
                         }
                     }, 10000);
                 } catch (Exception e) {
-                    try {
-                        bluetoothLeScanner.startScan(null, settings, scanCallback);
-                    } catch (Exception e2) {
-                        sendToJs("EXCEPTION: " + e.getMessage());
-                    }
+                    sendToJs("EXCEPTION: " + e.getMessage());
                 }
-            } else {
-                sendToJs("ERROR: Missing BLUETOOTH_SCAN permission.");
             }
         }
 
@@ -372,35 +407,34 @@ public class MainActivity extends AppCompatActivity {
                 }
             }
         }
+    }
 
-        private void cleanupBluetooth() {
-            stopCurrentScan();
-            isConnecting = false;
-            if (bluetoothGatt != null) {
-                if (ActivityCompat.checkSelfPermission(MainActivity.this, Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED) {
-                    try {
-                        bluetoothGatt.disconnect();
-                        // Delay close slightly to allow disconnect to propagate if possible, 
-                        // but we'll also close it in the callback or just close it here if we're purging.
-                        bluetoothGatt.close();
-                    } catch (Exception e) {
-                        Log.e(TAG, "Error during cleanup: " + e.getMessage());
-                    }
-                }
-                bluetoothGatt = null;
-            }
-            sendToJs("STATE: Resources Purged.");
-            evaluateJs("window.onNativeBleStatus('disconnected')");
-        }
-
-        private void stopCurrentScan() {
-            if (bluetoothLeScanner != null && isScanning) {
-                if (ActivityCompat.checkSelfPermission(MainActivity.this, Manifest.permission.BLUETOOTH_SCAN) == PackageManager.PERMISSION_GRANTED) {
-                    try { bluetoothLeScanner.stopScan(scanCallback); } catch (Exception ignored) {}
+    private void cleanupBluetooth() {
+        stopCurrentScan();
+        isConnecting = false;
+        isConnected = false;
+        if (bluetoothGatt != null) {
+            if (ActivityCompat.checkSelfPermission(MainActivity.this, Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED) {
+                try {
+                    bluetoothGatt.disconnect();
+                    bluetoothGatt.close();
+                } catch (Exception e) {
+                    Log.e(TAG, "Error during cleanup: " + e.getMessage());
                 }
             }
-            isScanning = false;
+            bluetoothGatt = null;
         }
+        sendToJs("STATE: Resources Purged.");
+        evaluateJs("window.onNativeBleStatus('disconnected')");
+    }
+
+    private void stopCurrentScan() {
+        if (bluetoothLeScanner != null && isScanning) {
+            if (ActivityCompat.checkSelfPermission(MainActivity.this, Manifest.permission.BLUETOOTH_SCAN) == PackageManager.PERMISSION_GRANTED) {
+                try { bluetoothLeScanner.stopScan(scanCallback); } catch (Exception ignored) {}
+            }
+        }
+        isScanning = false;
     }
 
     private final ScanCallback scanCallback = new ScanCallback() {
@@ -414,13 +448,15 @@ public class MainActivity extends AppCompatActivity {
                 
                 // Log every found device to the JS debug log to help user identify their device
                 String deviceLabel = (name != null ? name : "Unnamed") + " (" + address + ")";
-                sendToJs("DISCOVERED: " + deviceLabel);
                 
-                if (!isConnecting && name != null && (name.toUpperCase().contains("OSM") || name.toUpperCase().contains("ESP32") || name.toUpperCase().contains("CAN"))) {
+                if (!isConnecting && name != null && (name.toUpperCase().contains("OSM") || name.toUpperCase().contains("ESP32") || name.toUpperCase().contains("CAN") || name.toUpperCase().contains("MASTER"))) {
                     isConnecting = true;
                     sendToJs("MATCH_FOUND: " + name + ". Establishing dedicated link...");
-                    new NativeBleBridge().stopCurrentScan();
+                    stopCurrentScan();
                     connectToDevice(device);
+                } else if (!isConnecting) {
+                    // Just log discovered devices that don't match
+                    sendToJs("DISCOVERED: " + deviceLabel);
                 }
             }
         }
@@ -439,11 +475,44 @@ public class MainActivity extends AppCompatActivity {
     private void connectToDevice(BluetoothDevice device) {
         if (ActivityCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED) {
             sendToJs("LINK: Contacting hardware...");
+            isConnecting = true;
+            isConnected = false;
+            
+            // Connection timeout guard
+            mainHandler.postDelayed(() -> {
+                if (isConnecting && !isConnected) {
+                    sendToJs("ERROR: Connection handshake timed out. Purging stack...");
+                    cleanupBluetooth();
+                }
+            }, 12000);
+
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                 bluetoothGatt = device.connectGatt(this, false, gattCallback, BluetoothDevice.TRANSPORT_LE);
             } else {
                 bluetoothGatt = device.connectGatt(this, false, gattCallback);
             }
+            
+            if (bluetoothGatt == null) {
+                isConnecting = false;
+                sendToJs("ERROR: Failed to create GATT client.");
+                return;
+            }
+            
+            // Attempt to refresh cache
+            refreshDeviceCache(bluetoothGatt);
+        }
+    }
+
+    private void refreshDeviceCache(BluetoothGatt gatt) {
+        if (gatt == null) return;
+        try {
+            java.lang.reflect.Method localMethod = gatt.getClass().getMethod("refresh", new Class[0]);
+            if (localMethod != null) {
+                boolean result = (Boolean) localMethod.invoke(gatt, new Object[0]);
+                Log.d(TAG, "GATT Cache Refresh: " + result);
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "An exception occurred while refreshing device cache: " + e.getMessage());
         }
     }
 
@@ -453,8 +522,15 @@ public class MainActivity extends AppCompatActivity {
             Log.d(TAG, "onConnectionStateChange: status=" + status + " newState=" + newState);
             
             if (status != BluetoothGatt.GATT_SUCCESS) {
-                sendToJs("GATT_ERROR: Status " + status + ". Resetting connection...");
+                String errorMsg = "GATT_ERROR: Status " + status;
+                if (status == 133) errorMsg += " (Stack Busy/Timeout)";
+                if (status == 8) errorMsg += " (Connection Timeout)";
+                if (status == 19) errorMsg += " (Remote Disconnect)";
+                
+                sendToJs(errorMsg + ". Resetting...");
                 isConnecting = false;
+                isConnected = false;
+                
                 if (ActivityCompat.checkSelfPermission(MainActivity.this, Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED) {
                     gatt.close();
                 }
@@ -467,14 +543,13 @@ public class MainActivity extends AppCompatActivity {
 
             if (newState == BluetoothProfile.STATE_CONNECTED) {
                 isConnecting = false;
+                isConnected = true;
                 sendToJs("LINK: Handshake initiated.");
                 
-                // Cache the successful connection for future fast reconnects
-                String address = gatt.getDevice().getAddress();
-                getSharedPreferences(PREFS_NAME, MODE_PRIVATE).edit().putString(KEY_LAST_ADDR, address).apply();
-                lastDeviceAddress = address;
-
                 if (ActivityCompat.checkSelfPermission(MainActivity.this, Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED) {
+                    // Request high priority for better stability during discovery
+                    gatt.requestConnectionPriority(BluetoothGatt.CONNECTION_PRIORITY_HIGH);
+                    
                     // Delay MTU to allow internal stack preparation
                     mainHandler.postDelayed(() -> {
                         if (bluetoothGatt != null && ActivityCompat.checkSelfPermission(MainActivity.this, Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED) {
@@ -484,9 +559,11 @@ public class MainActivity extends AppCompatActivity {
                                 bluetoothGatt.discoverServices();
                             }
                         }
-                    }, 100); // Reduced from 200ms
+                    }, 250); // Increased delay for stability
                 }
             } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
+                isConnecting = false;
+                isConnected = false;
                 sendToJs("LINK: Terminated.");
                 evaluateJs("window.onNativeBleStatus('disconnected')");
                 if (ActivityCompat.checkSelfPermission(MainActivity.this, Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED) {
