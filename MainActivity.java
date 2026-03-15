@@ -518,6 +518,8 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
+    private boolean isAtStartOfLine = true;
+
     private final BluetoothGattCallback gattCallback = new BluetoothGattCallback() {
         @Override
         public void onConnectionStateChange(BluetoothGatt gatt, int status, int newState) {
@@ -660,9 +662,12 @@ public class MainActivity extends AppCompatActivity {
                     String data = new String(val, java.nio.charset.StandardCharsets.UTF_8);
                     
                     synchronized (bleDataBuffer) {
-                        // Send high-precision timestamp using US locale to ensure dot decimal separator
-                        bleDataBuffer.append("TS:").append(String.format(java.util.Locale.US, "%.3f", arrivalTime)).append("\n");
+                        if (isAtStartOfLine) {
+                            // Send high-precision timestamp using US locale to ensure dot decimal separator
+                            bleDataBuffer.append("TS:").append(String.format(java.util.Locale.US, "%.3f", arrivalTime)).append("\n");
+                        }
                         bleDataBuffer.append(data);
+                        isAtStartOfLine = data.endsWith("\n") || data.endsWith("\r");
                     }
                     
                     long currentTime = SystemClock.elapsedRealtime();

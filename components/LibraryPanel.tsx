@@ -1,10 +1,9 @@
 
 import React, { useState, useRef, useMemo, useEffect } from 'react';
-import { Database, Plus, Trash2, RefreshCw, Box, Settings2, ArrowUpToLine, ArrowDownToLine, Zap, Activity, Info, Lock, Unlock, Hash, ShieldAlert, AlertTriangle, ShieldCheck, Save, Loader2, BookOpen } from 'lucide-react';
+import { Database, Plus, Trash2, RefreshCw, Box, Settings2, ArrowUpToLine, ArrowDownToLine, Zap, Activity, Info, Lock, Unlock, ShieldAlert, AlertTriangle, ShieldCheck, Save, Loader2 } from 'lucide-react';
 import { ConversionLibrary, DBCMessage, DBCSignal, CANFrame } from '../types.ts';
 import { MY_CUSTOM_DBC } from '../data/dbcProfiles.ts';
 import { decToHex, normalizeId, decodeSignal, cleanMessageName } from '../utils/decoder.ts';
-import ProtocolModal from './ProtocolModal';
 
 interface LibraryPanelProps {
   library: ConversionLibrary;
@@ -18,9 +17,9 @@ const FAULT_IDS = ["2419654480", "2553303104"];
 
 const LibraryPanel: React.FC<LibraryPanelProps> = ({ library, onUpdateLibrary, latestFrames, onSaveDecoded, isSavingDecoded = false }) => {
   const [syncing, setSyncing] = useState(false);
+  const [showAllDbc, setShowAllDbc] = useState(false);
   const [isLocked, setIsLocked] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
-  const [isProtocolModalOpen, setIsProtocolModalOpen] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
 
   const activeDBCMessages = useMemo(() => {
@@ -33,7 +32,7 @@ const LibraryPanel: React.FC<LibraryPanelProps> = ({ library, onUpdateLibrary, l
       if (!latestFrame) return;
 
       const isFaultMessage = FAULT_IDS.includes(decId);
-      if (isFaultMessage) {
+      if (isFaultMessage && !showAllDbc && searchTerm === '') {
         const hasActiveError = (Object.values(message.signals) as DBCSignal[]).some(sig => {
           const val = decodeSignal(latestFrame.data, sig);
           return val.trim().startsWith('1');
@@ -51,8 +50,9 @@ const LibraryPanel: React.FC<LibraryPanelProps> = ({ library, onUpdateLibrary, l
         active.push({ id: decId, message, isFaultMessage });
       }
     });
+
     return active.sort((a, b) => cleanMessageName(a.message.name).localeCompare(cleanMessageName(b.message.name)));
-  }, [library.database, latestFrames, searchTerm]);
+  }, [library.database, latestFrames, searchTerm, showAllDbc]);
 
   useEffect(() => {
     if (isLocked && listRef.current) {
@@ -97,6 +97,16 @@ const LibraryPanel: React.FC<LibraryPanelProps> = ({ library, onUpdateLibrary, l
         
         <div className="flex items-center gap-3 overflow-x-auto no-scrollbar pb-1 md:pb-0">
           <button
+            onClick={() => setShowAllDbc(!showAllDbc)}
+            className={`flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-[8px] font-orbitron font-black uppercase transition-all border shadow-sm shrink-0 ${
+              showAllDbc ? 'bg-indigo-50 border-indigo-200 text-indigo-600' : 'bg-white border-slate-200 text-slate-400'
+            }`}
+          >
+            <Activity size={10} />
+            {showAllDbc ? 'SHOWING_ALL_DBC' : 'FILTER_FAULTS'}
+          </button>
+
+          <button
             onClick={() => setIsLocked(!isLocked)}
             className={`flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-[8px] font-orbitron font-black uppercase transition-all border shadow-sm shrink-0 ${
               isLocked ? 'bg-indigo-50 border-indigo-200 text-indigo-600' : 'bg-white border-slate-200 text-slate-400'
@@ -104,14 +114,6 @@ const LibraryPanel: React.FC<LibraryPanelProps> = ({ library, onUpdateLibrary, l
           >
             {isLocked ? <Lock size={10} /> : <Unlock size={10} />}
             {isLocked ? 'LOCKED' : 'FREE'}
-          </button>
-
-          <button
-            onClick={() => setIsProtocolModalOpen(true)}
-            className="flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-[8px] font-orbitron font-black uppercase transition-all border border-amber-200 bg-amber-50 text-amber-600 shadow-sm shrink-0 hover:bg-amber-100"
-          >
-            <BookOpen size={10} />
-            PROTOCOL_GUIDE
           </button>
           
           <button 
@@ -122,11 +124,6 @@ const LibraryPanel: React.FC<LibraryPanelProps> = ({ library, onUpdateLibrary, l
           </button>
         </div>
       </div>
-
-      <ProtocolModal 
-        isOpen={isProtocolModalOpen} 
-        onClose={() => setIsProtocolModalOpen(false)} 
-      />
 
       <div 
         ref={listRef}

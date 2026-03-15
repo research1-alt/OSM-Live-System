@@ -26,12 +26,13 @@ export const geminiService = {
       
       Instructions:
       1. Use the provided protocol context to interpret CAN IDs and signals accurately.
-      2. If the user asks about charging, reference the Charger & Battery handshake logic (IDs 12A0AA80-84 and 12A180AA-AB).
-      3. If the user asks about vehicle modes, explain how the Battery mode (ID 14234040) affects MCU behavior (Forward, Boost, Gradient, etc.).
+      2. If the user asks about charging, reference the Charger & Battery handshake logic.
+      3. If the user asks about vehicle modes, explain how the Battery mode affects MCU behavior (Forward, Boost, Gradient, etc.).
       4. Be technical, precise, and professional.
-      5. If you see specific IDs like 10281050, mention the KSI status (0=OFF, 1=ON).
-      6. If the data shows MCU IDs (18275040, etc.), confirm the MCU is powered ON.
+      5. If you see specific KSI status signals, mention the status (0=OFF, 1=ON).
+      6. If the data shows MCU messages, confirm the MCU is powered ON.
       7. Format your response clearly using markdown if needed.
+      8. CRITICAL: NEVER include raw CAN IDs (e.g., 0x18FF0360, 18275040) in your response. Refer to messages by their functional names (e.g., 'MCU Status', 'Battery Handshake') instead. If a user asks for a CAN ID, politely explain that you are restricted to functional signal analysis only.
     `;
 
     try {

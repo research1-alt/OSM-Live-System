@@ -60,7 +60,8 @@ const App: React.FC = () => {
 
   const [bridgeStatus, setBridgeStatus] = useState<ConnectionStatus>('disconnected');
   const [hwStatus, setHwStatus] = useState<HardwareStatus>('offline');
-  const [hardwareId, setHardwareId] = useState<string | null>(null);
+  const [hardwareId, setHardwareId] = useState<string | null>(() => localStorage.getItem('osm_lastConnectedId'));
+  const [lastConnectedMode, setLastConnectedMode] = useState<string | null>(() => localStorage.getItem('osm_lastConnectedMode'));
   const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'success' | 'error'>('idle');
   const loggedHardwareRef = useRef<string | null>(null);
   const javaTimeOffsetRef = useRef<number | null>(null);
@@ -78,6 +79,10 @@ const App: React.FC = () => {
   const [baudRate, setBaudRate] = useState(115200);
   const [debugLog, setDebugLog] = useState<string[]>([]);
   
+  // Background Logging Queue
+  const loggingQueueRef = useRef<CANFrame[]>([]);
+  const lastLogTimeRef = useRef<number>(Date.now());
+
   // PWA Install Prompt State
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
   const [showInstallOverlay, setShowInstallOverlay] = useState(false);
@@ -95,6 +100,47 @@ const App: React.FC = () => {
     return () => clearInterval(interval);
   }, []);
 
+  const addDebugLog = useCallback((msg: string) => {
+    const time = new Date().toLocaleTimeString('en-GB', { hour12: false });
+    setDebugLog(prev => [`[${time}] ${msg}`, ...prev].slice(0, 50));
+  }, []);
+
+  // Background Logging Effect
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (loggingQueueRef.current.length > 0) {
+        const batch = [...loggingQueueRef.current];
+        loggingQueueRef.current = [];
+        import('./services/loggingService').then(m => m.loggingService.logFrames(batch));
+      }
+    }, 5000); // Sync to spreadsheet every 5 seconds
+    
+    return () => clearInterval(interval);
+  }, []);
+
+  // Pre-warming / Auto-connect Effect
+  useEffect(() => {
+    const autoConnect = async () => {
+      const lastId = localStorage.getItem('osm_lastConnectedId');
+      const lastMode = localStorage.getItem('osm_lastConnectedMode');
+      
+      if (lastId && lastMode === 'esp32-bt') {
+        addDebugLog(`PRE_WARMING: Attempting background link to ${lastId}...`);
+        
+        // If native bridge exists, we can connect silently
+        if ((window as any).NativeBleBridge) {
+          (window as any).NativeBleBridge.connect(lastId);
+        } else {
+          addDebugLog("PRE_WARMING: Silent link requires Native Bridge. Manual search required for Web BT.");
+        }
+      }
+    };
+
+    // Small delay to ensure everything is initialized
+    const timer = setTimeout(autoConnect, 1000);
+    return () => clearTimeout(timer);
+  }, [addDebugLog]);
+
   // Transmit States
   const [activeSchedules, setActiveSchedules] = useState<Record<string, TransmitFrame>>({});
   const schedulesRef = useRef<Record<string, any>>({});
@@ -107,7 +153,7 @@ const App: React.FC = () => {
   });
 
   const sessionStartTimeRef = useRef<number>(0);
-  const appStartTimeRef = useRef<number>(0);
+  const hwTimeOffsetRef = useRef<number | null>(null);
   const allFramesRef = useRef<CANFrame[]>([]);
   const frameMapRef = useRef<Map<string, CANFrame>>(new Map());
   const pendingFramesRef = useRef<CANFrame[]>([]);
@@ -141,11 +187,6 @@ const App: React.FC = () => {
     setDeferredPrompt(null);
     setShowInstallOverlay(false);
   };
-
-  const addDebugLog = useCallback((msg: string) => {
-    const time = new Date().toLocaleTimeString('en-GB', { hour12: false });
-    setDebugLog(prev => [`[${time}] ${msg}`, ...prev].slice(0, 50));
-  }, []);
 
   const startSimulation = () => {
     if (!isAdmin) return;
@@ -310,34 +351,51 @@ const App: React.FC = () => {
   }, [library, exportFile, addDebugLog]);
 
   const handleSaveTrace = useCallback(async (isAuto: boolean = false) => {
-  const traceSource = allFramesRef.current;
-  if (traceSource.length === 0) return;
-  if (!isAuto) setIsSaving(true);
-  setTimeout(async () => {
-    try {
-      const firstFrame = traceSource[0];
-      const firstTimestamp = firstFrame.timestamp;
-      const startDate = new Date(firstFrame.absoluteTimestamp);
-      const excelSerialDate = (startDate.getTime() / (1000 * 60 * 60 * 24)) + 25569.0;
-      let content = ";$FILEVERSION=2.0\n";
-      content += `;$STARTTIME=${excelSerialDate.toFixed(10)}\n`;
-      content += ";$COLUMNS=N,O,T,I,d,l,D\n;\n";
-      const rows = traceSource.map((f, i) => {
-        const msgNum = (i + 1).toString().padStart(7, ' ');
-        // Timestamps in TRC should be relative to the start of the recording (0.000)
-        const timeOffset = (f.timestamp - firstTimestamp).toFixed(3).padStart(13, ' ');
-        const id = f.id.replace('0x', '').toUpperCase().padStart(8, ' ');
-        const rxtx = f.direction.padStart(2, ' ');
-        const dlc = f.dlc.toString().padStart(1, ' ');
-        const dataBytes = f.data.map(d => d.padStart(2, '0').toUpperCase()).join(' ');
-        return `${msgNum} ${timeOffset} DT ${id} ${rxtx} ${dlc}  ${dataBytes}`;
-      });
+    const traceSource = allFramesRef.current;
+    if (traceSource.length === 0) return;
+    if (!isAuto) setIsSaving(true);
+    setTimeout(async () => {
+      try {
+        const firstFrame = traceSource[0];
+        const firstTimestamp = firstFrame.timestamp;
+        const startDate = new Date(firstFrame.absoluteTimestamp);
+        const excelSerialDate = (startDate.getTime() / (1000 * 60 * 60 * 24)) + 25569.0;
+        const formattedDate = startDate.toLocaleString();
+
+        let content = ";$FILEVERSION=2.0\n";
+        content += `;$STARTTIME=${excelSerialDate.toFixed(10)}\n`;
+        content += ";$COLUMNS=N,O,T,I,d,l,D\n";
+        content += ";\n";
+        content += `;   Start time: ${formattedDate}\n`;
+        content += ";   Generated by OSM BT \n";
+        content += ";   Message   Time    Type ID     Rx/Tx\n";
+        content += ";   Number    Offset  |    [hex]  |  Data Length\n";
+        content += ";   |         [ms]    |    |      |  |  Data [hex] ...\n";
+        content += ";   |         |       |    |      |  |  |\n";
+        content += ";---+-- ------+------ +- --+----- +- +- +- +- -- -- -- -- -- -- --\n";
+
+        const rows = traceSource.map((f, i) => {
+          const msgNum = (i + 1).toString().padStart(7, ' ');
+          // Timestamps in TRC should be relative to the start of the recording (0.000)
+          const timeOffset = (f.timestamp - firstTimestamp).toFixed(3).padStart(13, ' ');
+          const type = "DT";
+          const id = f.id.replace('0x', '').toUpperCase().padStart(8, ' ');
+          const rxtx = f.direction.padStart(2, ' ');
+          const dlc = f.dlc.toString().padStart(1, ' ');
+          const dataBytes = f.data.slice(0, f.dlc).map(d => d.padStart(2, '0').slice(-2).toUpperCase()).join(' ');
+          return `${msgNum} ${timeOffset} ${type} ${id} ${rxtx} ${dlc}  ${dataBytes}`;
+        });
+        
         content += rows.join('\n') + '\n';
         const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
         await exportFile(content, `${isAuto ? 'AUTOSAVE_' : 'OSM_'}TRACE_${stamp}.trc`, '*/*');
-      } catch (e) { console.error(e); } finally { if (!isAuto) setIsSaving(false); }
+      } catch (e) { 
+        console.error(e); 
+      } finally { 
+        if (!isAuto) setIsSaving(false); 
+      }
     }, 50);
-  }, [frames, exportFile]);
+  }, [exportFile]);
   
   const handleSaveDecoded = useCallback(async (isAuto: boolean = false) => {
     const traceSource = allFramesRef.current;
@@ -383,13 +441,15 @@ const App: React.FC = () => {
   }, [frames, library, exportFile]);
 
   const handleNewFrame = useCallback((id: string, dlc: number, data: string[], hwTimestamp?: number) => {
-    // Handle System Messages (Always process these regardless of pause)
+    // Handle System Messages
     if (id.startsWith('SYS:')) {
       if (id.includes('#')) {
         const parts = id.split('#');
         const hId = parts[parts.length - 1].trim();
         if (hId && hId !== hardwareId) {
           setHardwareId(hId);
+          localStorage.setItem('osm_lastConnectedId', hId);
+          localStorage.setItem('osm_lastConnectedMode', 'esp32-bt');
           setDeviceHistory(prev => {
             if (prev.includes(hId)) return prev;
             const next = [hId, ...prev].slice(0, 10);
@@ -405,48 +465,58 @@ const App: React.FC = () => {
     const normId = normalizeId(id, true);
     if (!normId) return;
     
-    const prev = frameMapRef.current.get(normId);
+    const appNow = performance.now();
     
-    // 1. Use the raw hardware timestamp as the primary source of truth
-    // 2. Synchronize the session start to the very first frame's hardware clock
-    if (sessionStartTimeRef.current === 0 && hwTimestamp !== undefined) {
-      sessionStartTimeRef.current = hwTimestamp;
-      appStartTimeRef.current = performance.now();
-      setIsHwClockSynced(true);
+    // 1. Initialize session start time on the very first frame
+    if (sessionStartTimeRef.current === 0) {
+      sessionStartTimeRef.current = appNow;
+      setIsHwClockSynced(hwTimestamp !== undefined);
     }
 
-    const appNow = performance.now();
-    const arrivalTs = hwTimestamp !== undefined ? (hwTimestamp - sessionStartTimeRef.current) : (appNow - (appStartTimeRef.current || appNow));
-    const latency = hwTimestamp !== undefined ? (appNow - appStartTimeRef.current) - (hwTimestamp - sessionStartTimeRef.current) : 0;
+    // 2. Align hardware timestamp to system timebase (performance.now())
+    let alignedTs: number;
+    if (hwTimestamp !== undefined) {
+      if (hwTimeOffsetRef.current === null) {
+        hwTimeOffsetRef.current = appNow - hwTimestamp;
+        setIsHwClockSynced(true);
+      }
+      
+      alignedTs = hwTimestamp + hwTimeOffsetRef.current;
+      
+      // DRIFT & WRAP GUARD: If the aligned time is wildly different from system time (> 2s), 
+      // it means the hardware clock wrapped or changed its scale. Re-sync immediately.
+      if (Math.abs(alignedTs - appNow) > 2000) {
+        hwTimeOffsetRef.current = appNow - hwTimestamp;
+        alignedTs = appNow;
+      }
+    } else {
+      alignedTs = appNow;
+    }
+
+    // 3. Calculate relative offset for display
+    let arrivalTs = alignedTs - sessionStartTimeRef.current;
     
-    // 3. Transparent Jitter Reduction (Clock Recovery)
-    // We don't "limit" the data, we just "re-align" it to the most likely periodic grid
-    // to compensate for BLE connection interval jitter (e.g. 7.5ms - 30ms bursts).
-    let smoothedTimestamp = arrivalTs;
+    // 4. Sanity Check: Never allow negative relative timestamps
+    if (arrivalTs < 0) {
+      sessionStartTimeRef.current = alignedTs;
+      arrivalTs = 0;
+    }
+
+    const latency = hwTimestamp !== undefined ? (appNow - alignedTs) : 0;
+    
+    const prev = frameMapRef.current.get(normId);
     let period = 0;
 
     if (prev) {
       const rawPeriod = arrivalTs - prev.timestamp;
+      // Only update period if it's positive and sane
+      period = rawPeriod > 0 ? rawPeriod : prev.periodMs;
       
-      // If we have a hardware timestamp from the ESP32, we trust it 100%
-      // Otherwise, we apply jitter reduction for arrival-based timestamps
-      const isHwTimestamp = hwTimestamp !== undefined;
-      
-      if (isHwTimestamp) {
-        smoothedTimestamp = arrivalTs;
-        period = rawPeriod;
-      } else {
-        const isBurst = rawPeriod < 2; // Less than 2ms is likely a BLE burst
-        
+      // Jitter reduction for arrival-based timestamps (only if no hardware clock)
+      if (hwTimestamp === undefined) {
+        const isBurst = rawPeriod < 2;
         if (isBurst && prev.periodMs > 0) {
-          smoothedTimestamp = prev.timestamp + prev.periodMs;
-        } else {
-          // Update our period estimate using a very light EMA
-          const alpha = 0.05; 
-          period = prev.periodMs === 0 ? rawPeriod : (prev.periodMs * (1 - alpha) + rawPeriod * alpha);
-          
-          const drift = Math.abs(smoothedTimestamp - arrivalTs);
-          if (drift > 50) smoothedTimestamp = arrivalTs;
+          period = prev.periodMs;
         }
       }
     }
@@ -454,27 +524,24 @@ const App: React.FC = () => {
     const newFrame: CANFrame = {
       id: `0x${formatIdForDisplay(normId)}`, dlc,
       data: data.map(d => d.toUpperCase().trim()), 
-      timestamp: Number(smoothedTimestamp.toFixed(3)), 
+      timestamp: Number(arrivalTs.toFixed(3)), 
       absoluteTimestamp: Date.now(),
       direction: 'Rx',
       count: (prev?.count || 0) + 1,
-      periodMs: Number((period || (arrivalTs - (prev?.timestamp || arrivalTs))).toFixed(2)),
+      periodMs: Number((period || 0).toFixed(2)),
       transportLatency: latency > 0 ? Number(latency.toFixed(1)) : 0
     };
 
-    // Always update internal state for data consistency
     frameMapRef.current.set(normId, newFrame);
-    
     allFramesRef.current.push(newFrame);
     
-    // Efficient buffer management: Only prune when we exceed the limit by 10%
-    // to avoid O(N) shift() operations on every frame.
-    const limit = 1000000; 
-    if (allFramesRef.current.length > limit + 10000) {
-      allFramesRef.current = allFramesRef.current.slice(-limit);
+    // Add to background logging queue
+    loggingQueueRef.current.push(newFrame);
+    
+    if (allFramesRef.current.length > 1010000) {
+      allFramesRef.current = allFramesRef.current.slice(-1000000);
     }
 
-    // Only update UI-bound pending frames if not paused
     if (!isPaused) {
       pendingFramesRef.current.push(newFrame);
     }
@@ -530,50 +597,28 @@ const App: React.FC = () => {
             if (firstHash !== -1 && secondHash !== -1) {
               const id = trimmed.substring(0, firstHash);
               const dlcStr = trimmed.substring(firstHash + 1, secondHash);
-              const dlc = parseInt(dlcStr);
+              const dlc = parseInt(dlcStr) || 0;
               let rawDataStr = trimmed.substring(secondHash + 1);
               
-              // Support for "Serial Process" - Hardware Level Timestamping
               let frameHwTimestamp = currentBatchTimestampRef.current;
               
-              // 1. Robust TS extraction: Find TS: anywhere in the data string
               const tsMatch = rawDataStr.match(/TS:(\d+\.?\d*)/i);
               if (tsMatch) {
                 const tsVal = parseFloat(tsMatch[1]);
                 if (!isNaN(tsVal)) frameHwTimestamp = tsVal;
-                // Replace the TS part with a space to avoid merging adjacent bytes
                 rawDataStr = rawDataStr.replace(/TS:\d+\.?\d*/i, ' ');
               }
 
-              // 2. Aggressive Hex-Hunter: Extract all 2-digit hex pairs
-              let allHexPairs = rawDataStr.match(/[0-9A-Fa-f]{2}/g) || [];
+              // STRICT HEX PARSER: Extract all 2-digit hex pairs
+              // This prevents IDs or other fields from being merged into data bytes
+              const allHexPairs = rawDataStr.match(/[0-9A-Fa-f]{2}/g) || [];
+              const dataParts = allHexPairs.slice(0, dlc);
               
-              // 3. DLC-Aware Separation:
-              // Take only the number of bytes specified by DLC as CAN data
-              let dataParts = allHexPairs.slice(0, dlc);
-              // Any remaining bytes are likely a binary hardware timestamp (4-byte footer)
-              const extraBytes = allHexPairs.slice(dlc);
-
-              if (extraBytes.length >= 4 && !tsMatch) {
-                // Interpret the first 4 extra bytes as a big-endian microsecond timestamp
-                const hexTs = extraBytes.slice(0, 4).join('');
-                const micros = parseInt(hexTs, 16);
-                if (!isNaN(micros)) {
-                  frameHwTimestamp = micros / 1000.0;
-                }
-              }
-              
-              // 4. Diagnostic Logging: Help the user see the raw data arriving
-              if (allFramesRef.current.length % 50 === 0) {
-                addDebugLog(`DIAG: ID=${id} DLC=${dlc} Data=${dataParts.length} Extra=${extraBytes.length}`);
-              }
-
-              // 5. Diagnostic Padding: If hardware sends fewer bytes than the DLC claims
+              // Padding if necessary
               while (dataParts.length < dlc && dataParts.length < 8) {
-                dataParts.push("??");
+                dataParts.push("00");
               }
 
-              // Support for 4th field (micros) if it exists (legacy support)
               const remainingParts = rawDataStr.split('#');
               if (remainingParts.length >= 2) {
                 const esp32Micros = parseInt(remainingParts[1]);
@@ -600,7 +645,11 @@ const App: React.FC = () => {
 
         if (status === 'connected') {
           setHwStatus('active');
-          if (deviceName) setHardwareId(deviceName);
+          if (deviceName) {
+            setHardwareId(deviceName);
+            localStorage.setItem('osm_lastConnectedId', deviceName);
+            localStorage.setItem('osm_lastConnectedMode', 'esp32-bt');
+          }
           // Reset session start - will be anchored to the first frame's HW clock
           sessionStartTimeRef.current = 0; 
           setIsHwClockSynced(false);
@@ -753,13 +802,29 @@ const App: React.FC = () => {
           if (trimmed.startsWith('SYS:')) {
             handleNewFrame(trimmed, 0, [], arrivalTime);
           } else {
-            const parts = trimmed.split('#');
-            if (parts.length >= 3) {
-              const id = parts[0];
-              const dlc = parseInt(parts[1]);
-              const dataParts = parts[2].split(',');
-              const hwTs = parts.length >= 4 ? parseFloat(parts[3]) : arrivalTime;
-              handleNewFrame(id, dlc, dataParts, hwTs);
+            // UNIFIED ROBUST PARSER for Web Bluetooth
+            const firstHash = trimmed.indexOf('#');
+            const secondHash = trimmed.indexOf('#', firstHash + 1);
+            
+            if (firstHash !== -1 && secondHash !== -1) {
+              const id = trimmed.substring(0, firstHash);
+              const dlcStr = trimmed.substring(firstHash + 1, secondHash);
+              const dlc = parseInt(dlcStr) || 0;
+              const rawDataStr = trimmed.substring(secondHash + 1);
+              
+              // Extract hex pairs strictly
+              const allHexPairs = rawDataStr.match(/[0-9A-Fa-f]{2}/g) || [];
+              const dataParts = allHexPairs.slice(0, dlc);
+              
+              while (dataParts.length < dlc && dataParts.length < 8) {
+                dataParts.push("00");
+              }
+              
+              // Check for trailing timestamp in the raw string
+              const remainingParts = rawDataStr.split('#');
+              const hwTs = remainingParts.length >= 2 ? parseFloat(remainingParts[1]) : arrivalTime;
+              
+              handleNewFrame(id, dlc, dataParts, isNaN(hwTs) ? arrivalTime : hwTs);
             }
           }
         }
@@ -774,6 +839,8 @@ const App: React.FC = () => {
       allFramesRef.current = [];
       sessionStartTimeRef.current = performance.now();
       setHardwareId(device.name || 'OSM-BT-LINK');
+      localStorage.setItem('osm_lastConnectedId', device.name || 'OSM-BT-LINK');
+      localStorage.setItem('osm_lastConnectedMode', 'esp32-bt');
       setBridgeStatus('connected'); 
       setHwStatus('active');
       
@@ -813,6 +880,8 @@ const App: React.FC = () => {
       }
     }
     webBluetoothDeviceRef.current = null;
+    javaTimeOffsetRef.current = null;
+    hwTimeOffsetRef.current = null;
     if ((window as any).NativeBleBridge) (window as any).NativeBleBridge.disconnectBle();
     setBridgeStatus('disconnected'); setHwStatus('offline'); setIsSimulated(false);
   }, []);
@@ -840,8 +909,8 @@ const App: React.FC = () => {
         // Update Trace List (the scrolling list)
         setFrames(prev => {
           const next = [...prev, ...batch];
-          // Keep UI buffer small (1000 frames) as requested for "less load"
-          return next.length > 1000 ? next.slice(-1000) : next;
+          // Buffer limit removed as requested. Virtualization handles performance.
+          return next;
         });
       }
     }, 16); // 16ms cycle (60fps) for fluent processing

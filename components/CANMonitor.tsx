@@ -37,16 +37,37 @@ const CANMonitor: React.FC<CANMonitorProps> = ({
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   };
 
-  const displayFrames = useMemo(() => {
-    if (frames.length <= 1000) return frames;
-    return frames.slice(-1000);
-  }, [frames]);
+  const [scrollTop, setScrollTop] = useState(0);
+  const ROW_HEIGHT = 20; // h-5 is 20px
+  const VISIBLE_ROWS = 30;
+
+  const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    setScrollTop(e.currentTarget.scrollTop);
+    // If user scrolls up, disable auto-scroll
+    const { scrollHeight, clientHeight, scrollTop: currentScroll } = e.currentTarget;
+    const isAtBottom = scrollHeight - clientHeight - currentScroll < 50;
+    if (!isAtBottom) setAutoScroll(false);
+    else setAutoScroll(true);
+  };
 
   useEffect(() => {
     if (autoScroll && !isPaused && scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
-  }, [displayFrames, isPaused, autoScroll]);
+  }, [frames.length, isPaused, autoScroll]);
+
+  const { startIndex, endIndex, translateY } = useMemo(() => {
+    const start = Math.floor(scrollTop / ROW_HEIGHT);
+    const startIndex = Math.max(0, start - 10);
+    const endIndex = Math.min(frames.length, startIndex + VISIBLE_ROWS + 20);
+    return { startIndex, endIndex, translateY: startIndex * ROW_HEIGHT };
+  }, [scrollTop, frames.length]);
+
+  const visibleFrames = useMemo(() => {
+    return frames.slice(startIndex, endIndex);
+  }, [frames, startIndex, endIndex]);
+
+  const totalHeight = frames.length * ROW_HEIGHT;
 
   const handleReload = () => {
     setIsResetting(true);
@@ -66,8 +87,8 @@ const CANMonitor: React.FC<CANMonitorProps> = ({
     </div>
   );
 
-  const formatClassicRow = (frame: CANFrame, indexInDisplay: number) => {
-    const actualIndex = frames.length > 1000 ? (frames.length - 1000 + indexInDisplay + 1) : (indexInDisplay + 1);
+  const formatClassicRow = (frame: CANFrame, indexInVisible: number) => {
+    const actualIndex = startIndex + indexInVisible + 1;
     const timeVal = (frame.timestamp / 1000);
     const timeStr = (timeMode === 'relative' ? timeVal.toFixed(3) : new Date(frame.absoluteTimestamp).toLocaleTimeString('en-GB', { hour12: false })).padStart(13, ' ');
     const type = "DT";
@@ -124,11 +145,13 @@ const CANMonitor: React.FC<CANMonitorProps> = ({
         </div>
       </div>
 
-      <div ref={scrollRef} className="flex-1 overflow-x-auto overflow-y-auto custom-scrollbar bg-white font-mono min-h-0 z-10 relative">
+      <div ref={scrollRef} onScroll={handleScroll} className="flex-1 overflow-x-auto overflow-y-auto custom-scrollbar bg-white font-mono min-h-0 z-10 relative">
         <div className="p-2 md:p-4 min-w-[700px] md:min-w-[1000px] text-slate-800 relative h-full">
           {renderClassicHeaders()}
-          <div className="pt-2 space-y-0.5 pb-8 overflow-y-visible">
-            {!isResetting && displayFrames.map((frame, idx) => formatClassicRow(frame, idx))}
+          <div className="pt-2 space-y-0.5 pb-8 overflow-y-visible" style={{ height: totalHeight }}>
+            <div style={{ transform: `translateY(${translateY}px)` }}>
+              {!isResetting && visibleFrames.map((frame, idx) => formatClassicRow(frame, idx))}
+            </div>
           </div>
         </div>
         {!isResetting && frames.length > 0 && (
@@ -146,7 +169,7 @@ const CANMonitor: React.FC<CANMonitorProps> = ({
 
       <div className="bg-slate-50 px-3 md:px-6 py-1.5 border-t border-slate-200 flex flex-col sm:flex-row justify-between items-center text-[7px] md:text-[8px] font-orbitron font-black text-slate-400 uppercase shrink-0 z-[60] gap-1">
         <div className="flex flex-wrap gap-3 md:gap-6 justify-center items-center">
-          <span className="text-indigo-600 font-bold">{frames.length.toLocaleString()} / 1,000 BUFFER</span>
+          <span className="text-indigo-600 font-bold">{frames.length.toLocaleString()} BUFFER</span>
           <span className="text-emerald-600 font-bold">{msgPerSec?.toLocaleString() || 0} MSG/SEC</span>
         </div>
         <div className="flex items-center gap-4">
