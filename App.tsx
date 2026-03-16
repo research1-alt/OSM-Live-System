@@ -46,11 +46,22 @@ declare global {
 
 const App: React.FC = () => {
   const [user, setUser] = useState<User | null>(() => {
-    const savedUser = localStorage.getItem('osm_currentUser');
-    try { return savedUser ? JSON.parse(savedUser) : null; } catch { return null; }
+    try {
+      const savedUser = localStorage.getItem('osm_currentUser');
+      return savedUser ? JSON.parse(savedUser) : null;
+    } catch (e) {
+      console.warn("LocalStorage access failed:", e);
+      return null;
+    }
   });
   
-  const [sessionId, setSessionId] = useState<string | null>(() => localStorage.getItem('osm_sid'));
+  const [sessionId, setSessionId] = useState<string | null>(() => {
+    try {
+      return localStorage.getItem('osm_sid');
+    } catch (e) {
+      return null;
+    }
+  });
   
   // Navigation
   const [view, setView] = useState<'home' | 'select' | 'live'>('home');
@@ -88,8 +99,12 @@ const App: React.FC = () => {
     console.log(`[APP_STATE] View: ${view}, Bridge: ${bridgeStatus}, HW: ${hwStatus}`);
   }, [view, bridgeStatus, hwStatus]);
   const [deviceHistory, setDeviceHistory] = useState<string[]>(() => {
-    const saved = localStorage.getItem('osm_deviceHistory');
-    try { return saved ? JSON.parse(saved) : []; } catch { return []; }
+    try {
+      const saved = localStorage.getItem('osm_deviceHistory');
+      return saved ? JSON.parse(saved) : [];
+    } catch (e) {
+      return [];
+    }
   });
   const [baudRate, setBaudRate] = useState(115200);
   const [debugLog, setDebugLog] = useState<string[]>([]);
@@ -756,32 +771,6 @@ const App: React.FC = () => {
     };
   }, [handleNewFrame, addDebugLog]);
 
-  const disconnectSerial = async () => {
-    keepReadingRef.current = false;
-    
-    if (serialReaderRef.current) {
-      try { await serialReaderRef.current.cancel(); } catch(e){}
-    }
-    
-    if (serialWriterRef.current) {
-      try { serialWriterRef.current.releaseLock(); } catch(e){}
-      serialWriterRef.current = null;
-    }
-
-    if (serialPortRef.current) {
-      try { await serialPortRef.current.close(); } catch(e){}
-      serialPortRef.current = null;
-    }
-
-    if (window.NativeSerialBridge) {
-      window.NativeSerialBridge.disconnectSerial();
-    }
-
-    setBridgeStatus('disconnected');
-    setHwStatus('offline');
-    addDebugLog("SERIAL: Connection reset.");
-  };
-
   const connectWebSerial = async () => {
     // Check for Native Bridge First (Android App Context)
     if (window.NativeSerialBridge) {
@@ -1329,7 +1318,6 @@ const App: React.FC = () => {
                   onSetHardwareMode={setHardwareMode}
                   baudRate={baudRate}
                   onSetBaudRate={setBaudRate}
-                  onAddDebugLog={addDebugLog}
                 />
               </div>
             </div>

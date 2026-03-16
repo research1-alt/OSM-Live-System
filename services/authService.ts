@@ -1,5 +1,5 @@
 
-import { hashPassword } from '../utils/crypto.ts';
+import { hashPassword } from '../utils/crypto';
 
 // MISSION CRITICAL: Centralized Apps Script Gateway
 export const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbysv4xnhNT1egv9JzV4aRJ3-7kNAUiG-1uAtZDSHXenCL3IS-arVGmg6xz4eBcW0P86fg/exec';
@@ -49,7 +49,8 @@ export const authService = {
    */
   queueRequest(url: string, options: any) {
     try {
-      const queue = JSON.parse(localStorage.getItem('osm_sync_queue') || '[]');
+      const queueData = localStorage.getItem('osm_sync_queue');
+      const queue = JSON.parse(queueData || '[]');
       queue.push({ url, options, timestamp: Date.now() });
       // Limit queue size to 50 items to prevent storage bloat
       if (queue.length > 50) queue.shift();
@@ -64,7 +65,8 @@ export const authService = {
    */
   async processQueue() {
     try {
-      const queue = JSON.parse(localStorage.getItem('osm_sync_queue') || '[]');
+      const queueData = localStorage.getItem('osm_sync_queue');
+      const queue = JSON.parse(queueData || '[]');
       if (queue.length === 0) return;
 
       console.log(`Processing ${queue.length} queued sync requests...`);
