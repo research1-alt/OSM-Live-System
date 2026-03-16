@@ -120,16 +120,18 @@ const App: React.FC = () => {
 
   // Pre-warming / Auto-connect Effect
   useEffect(() => {
+    if (!user || bridgeStatus !== 'disconnected') return;
+
     const autoConnect = async () => {
       const lastId = localStorage.getItem('osm_lastConnectedId');
       const lastMode = localStorage.getItem('osm_lastConnectedMode');
       
       if (lastId && lastMode === 'esp32-bt') {
-        addDebugLog(`PRE_WARMING: Attempting background link to ${lastId}...`);
+        addDebugLog(`PRE_WARMING: Attempting background link...`);
         
         // If native bridge exists, we can connect silently
         if ((window as any).NativeBleBridge) {
-          (window as any).NativeBleBridge.connect(lastId);
+          (window as any).NativeBleBridge.startBleLink();
         } else {
           addDebugLog("PRE_WARMING: Silent link requires Native Bridge. Manual search required for Web BT.");
         }
@@ -139,7 +141,7 @@ const App: React.FC = () => {
     // Small delay to ensure everything is initialized
     const timer = setTimeout(autoConnect, 1000);
     return () => clearTimeout(timer);
-  }, [addDebugLog]);
+  }, [user, bridgeStatus, addDebugLog]);
 
   // Transmit States
   const [activeSchedules, setActiveSchedules] = useState<Record<string, TransmitFrame>>({});
