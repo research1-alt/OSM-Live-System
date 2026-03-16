@@ -1,5 +1,6 @@
 export interface CANFrame {
-  id: string; // Hex ID
+  id: string; // Hex ID for display (e.g. 0x1827FF81)
+  normId: string; // Normalized Hex ID (e.g. 1827FF81)
   dlc: number;
   data: string[]; // Array of hex strings ["00", "FF", ...]
   timestamp: number; // Relative to session start (ms)

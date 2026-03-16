@@ -1,4 +1,5 @@
 import { CANFrame } from '../types';
+import { normalizeId } from './decoder';
 
 /**
  * Adaptive PCAN-View Trace Parser
@@ -60,8 +61,10 @@ export function parseTrcFile(content: string): CANFrame[] {
     }
 
     if (id && !isNaN(dlc)) {
+      const normId = normalizeId(id, true);
       frames.push({
         id: `0x${id.toUpperCase()}`,
+        normId,
         dlc,
         data: data.map(d => d.toUpperCase()),
         timestamp, // Original offset in ms

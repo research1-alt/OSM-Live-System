@@ -17,21 +17,30 @@ const FAULT_IDS = ["2419654480", "2553303104"];
 
 const LibraryPanel: React.FC<LibraryPanelProps> = ({ library, onUpdateLibrary, latestFrames, onSaveDecoded, isSavingDecoded = false }) => {
   const [syncing, setSyncing] = useState(false);
-  const [showAllDbc, setShowAllDbc] = useState(false);
+  const [showAllDbc, setShowAllDbc] = useState(true); // Default to true to show all messages
   const [isLocked, setIsLocked] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const listRef = useRef<HTMLDivElement>(null);
+
+  // Pre-normalize DBC keys for faster lookup
+  const normalizedDbc = useMemo(() => {
+    return (Object.entries(library.database) as [string, DBCMessage][]).map(([decId, message]) => ({
+      decId,
+      normId: normalizeId(decId),
+      message,
+      isFaultMessage: FAULT_IDS.includes(decId)
+    }));
+  }, [library.database]);
 
   const activeDBCMessages = useMemo(() => {
     const active: Array<{ id: string, message: DBCMessage, isFaultMessage: boolean }> = [];
     const searchLower = searchTerm.toLowerCase();
     
-    (Object.entries(library.database) as [string, DBCMessage][]).forEach(([decId, message]) => {
-      const normDbcId = normalizeId(decId);
-      const latestFrame = latestFrames[normDbcId];
+    normalizedDbc.forEach(({ decId, normId, message, isFaultMessage }) => {
+      const latestFrame = latestFrames[normId];
       if (!latestFrame) return;
 
-      const isFaultMessage = FAULT_IDS.includes(decId);
+      // If it's a fault message and we are filtering, only show if it has an active error
       if (isFaultMessage && !showAllDbc && searchTerm === '') {
         const hasActiveError = (Object.values(message.signals) as DBCSignal[]).some(sig => {
           const val = decodeSignal(latestFrame.data, sig);
@@ -52,7 +61,7 @@ const LibraryPanel: React.FC<LibraryPanelProps> = ({ library, onUpdateLibrary, l
     });
 
     return active.sort((a, b) => cleanMessageName(a.message.name).localeCompare(cleanMessageName(b.message.name)));
-  }, [library.database, latestFrames, searchTerm, showAllDbc]);
+  }, [normalizedDbc, latestFrames, searchTerm, showAllDbc]);
 
   useEffect(() => {
     if (isLocked && listRef.current) {
@@ -138,14 +147,10 @@ const LibraryPanel: React.FC<LibraryPanelProps> = ({ library, onUpdateLibrary, l
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6 items-start">
             {activeDBCMessages.map(({ id, message, isFaultMessage }) => {
-              const normDbcId = normalizeId(id);
-              const latestFrame = latestFrames[normDbcId];
+              const normId = normalizeId(id);
+              const latestFrame = latestFrames[normId];
               
               const signalsToRender = (Object.values(message.signals) as DBCSignal[]).filter(sig => {
-                if (isFaultMessage) {
-                  const val = latestFrame ? decodeSignal(latestFrame.data, sig) : "0";
-                  return val.trim().startsWith('1');
-                }
                 return searchTerm === '' || sig.name.toLowerCase().includes(searchTerm.toLowerCase());
               });
 

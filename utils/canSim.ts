@@ -70,6 +70,7 @@ function createMockFrame(id: string, timestamp: number, interval: number, prevFr
 
   return {
     id: `0x${id}`,
+    normId: id.toUpperCase(),
     dlc,
     data,
     timestamp: timestamp - sessionStartTime,

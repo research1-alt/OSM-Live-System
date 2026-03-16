@@ -196,6 +196,7 @@ const App: React.FC = () => {
     const normId = normalizeId(id, true);
     const newFrame: CANFrame = {
       id: `0x${formatIdForDisplay(normId)}`,
+      normId,
       dlc,
       data: data.map(d => d.toUpperCase()),
       timestamp: performance.now() - sessionStartTimeRef.current,
@@ -479,7 +480,9 @@ const App: React.FC = () => {
     }
 
     const newFrame: CANFrame = {
-      id: `0x${formatIdForDisplay(normId)}`, dlc,
+      id: `0x${formatIdForDisplay(normId)}`, 
+      normId,
+      dlc,
       data: data.map(d => d.toUpperCase().trim()), 
       timestamp: Number(arrivalTs.toFixed(3)), 
       absoluteTimestamp: Date.now(),
@@ -853,8 +856,7 @@ const App: React.FC = () => {
         setLatestFrames(prev => {
           const next = { ...prev };
           batch.forEach(f => {
-            const normId = normalizeId(f.id.replace('0x', ''), true);
-            next[normId] = f;
+            next[f.normId] = f;
           });
           return next;
         });
