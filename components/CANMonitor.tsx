@@ -75,12 +75,12 @@ const CANMonitor: React.FC<CANMonitorProps> = ({
     setTimeout(() => setIsResetting(false), 800);
   };
 
-  const headerLine = ";---+-- ------+------ +- --+----- +- +- +- +- -- -- -- -- -- -- --";
+  const headerLine = ";---+-- ------+------ +- --+----- +- +- +- +- -- -- -- -- -- -- -- +-------+-------";
 
   const renderClassicHeaders = () => (
     <div className="sticky top-0 bg-white z-20 pt-2 pb-1 select-none font-mono text-[10px] md:text-[13px] text-slate-400 whitespace-pre border-b border-slate-100">
-      <div className="mb-0.5">;   Time    Type ID     Rx/Tx</div>
-      <div className="mb-0.5">{(timeMode === 'relative' ? ';   Offset  ' : ';   System  ') + "|    [hex]  |  Data Length"}</div>
+      <div className="mb-0.5">;   Time    Type ID     Rx/Tx                                Jitter  Expected</div>
+      <div className="mb-0.5">{(timeMode === 'relative' ? ';   Offset  ' : ';   System  ') + "|    [hex]  |  Data Length                       [ms]    [ms]"}</div>
       <div className="mb-0.5">;   [ms]    |    |      |  |  Data [hex] ...</div>
       <div className="mb-0.5">;   |       |    |      |  |  |</div>
       <div className="text-slate-200">{headerLine}</div>
@@ -95,12 +95,19 @@ const CANMonitor: React.FC<CANMonitorProps> = ({
     const id = frame.id.replace('0x', '').toUpperCase().padStart(8, ' ');
     const rxtx = frame.direction.padStart(2, ' ');
     const dlc = frame.dlc.toString().padStart(1, ' ');
-    const dataBytes = frame.data.map(d => d.padStart(2, '0')).join(' ');
+    const dataBytes = frame.data.map(d => d.padStart(2, '0')).join(' ').padEnd(24, ' ');
+    
+    const jitterStr = (frame.jitterMs || 0).toFixed(2).padStart(7, ' ');
+    const expectedStr = (frame.expectedPeriodMs || 0) > 0 ? frame.expectedPeriodMs?.toString().padStart(7, ' ') : "    ---";
 
     return (
       <div key={`${frame.absoluteTimestamp}-${actualIndex}`} className="flex hover:bg-slate-50 transition-colors leading-tight h-5 items-center font-mono text-[10px] md:text-[13px] text-slate-800 whitespace-pre">
         <span>{timeStr + " " + type + " " + id + " " + rxtx + " " + dlc + "  "}</span>
         <span className="text-emerald-600">{dataBytes}</span>
+        <span className="text-slate-400 ml-2">|</span>
+        <span className={(frame.jitterMs || 0) > 5 ? 'text-red-500' : 'text-slate-500'}>{jitterStr}</span>
+        <span className="text-slate-400 ml-2">|</span>
+        <span className="text-indigo-500">{expectedStr}</span>
       </div>
     );
   };

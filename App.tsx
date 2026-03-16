@@ -55,6 +55,8 @@ const App: React.FC = () => {
   const [isSavingDecoded, setIsSavingDecoded] = useState(false);
   const [autoSaveEnabled, setAutoSaveEnabled] = useState(false);
   const [msgPerSec, setMsgPerSec] = useState(0);
+  const [busSpeed, setBusSpeed] = useState(250000); 
+  const [busLoad, setBusLoad] = useState(0);
   const lastFrameCountRef = useRef(0);
   const hasTriggeredAutoSaveRef = useRef(false);
 
@@ -64,6 +66,8 @@ const App: React.FC = () => {
   const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'success' | 'error'>('idle');
   const loggedHardwareRef = useRef<string | null>(null);
   const javaTimeOffsetRef = useRef<number | null>(null);
+  const hwTimeOffsetRef = useRef<number | null>(null);
+  const lastArrivalTsRef = useRef<number>(0);
   const currentBatchTimestampRef = useRef<number>(performance.now());
 
   // Debug: Track state changes
@@ -107,7 +111,6 @@ const App: React.FC = () => {
   });
 
   const sessionStartTimeRef = useRef<number>(0);
-  const hwTimeOffsetRef = useRef<number | null>(null);
   const allFramesRef = useRef<CANFrame[]>([]);
   const frameMapRef = useRef<Map<string, CANFrame>>(new Map());
   const pendingFramesRef = useRef<CANFrame[]>([]);
@@ -336,7 +339,7 @@ const App: React.FC = () => {
 
         const rows = traceSource.map((f, i) => {
           const msgNum = (i + 1).toString().padStart(7, ' ');
-          // Timestamps in TRC should be relative to the start of the recording (0.000)
+          // Timestamps in this TRC template are in milliseconds as per the [ms] header
           const timeOffset = (f.timestamp - firstTimestamp).toFixed(3).padStart(13, ' ');
           const type = "DT";
           const id = f.id.replace('0x', '').toUpperCase().padStart(8, ' ');
@@ -433,7 +436,7 @@ const App: React.FC = () => {
 
     // 2. Align hardware timestamp to system timebase (performance.now())
     let alignedTs: number;
-    if (hwTimestamp !== undefined) {
+    if (hwTimestamp !== undefined && hwTimestamp !== appNow) {
       if (hwTimeOffsetRef.current === null) {
         hwTimeOffsetRef.current = appNow - hwTimestamp;
         setIsHwClockSynced(true);
@@ -441,15 +444,24 @@ const App: React.FC = () => {
       
       alignedTs = hwTimestamp + hwTimeOffsetRef.current;
       
-      // DRIFT & WRAP GUARD: If the aligned time is wildly different from system time (> 2s), 
-      // it means the hardware clock wrapped or changed its scale. Re-sync immediately.
+      // DRIFT & WRAP GUARD
       if (Math.abs(alignedTs - appNow) > 2000) {
         hwTimeOffsetRef.current = appNow - hwTimestamp;
         alignedTs = appNow;
       }
     } else {
-      alignedTs = appNow;
+      // SOFTWARE TIMESTAMP INTERPOLATION:
+      // If multiple frames arrive at the exact same performance.now(), 
+      // they are likely a BLE batch. We spread them by 0.1ms to maintain order and 
+      // prevent 0ms delta calculations which ruin jitter/period stats.
+      const lastTs = lastArrivalTsRef.current;
+      if (Math.abs(appNow - lastTs) < 0.01) {
+        alignedTs = lastTs + 0.1; 
+      } else {
+        alignedTs = appNow;
+      }
     }
+    lastArrivalTsRef.current = alignedTs;
 
     // 3. Calculate relative offset for display
     let arrivalTs = alignedTs - sessionStartTimeRef.current;
@@ -460,10 +472,11 @@ const App: React.FC = () => {
       arrivalTs = 0;
     }
 
-    const latency = hwTimestamp !== undefined ? (appNow - alignedTs) : 0;
+    const latency = (hwTimestamp !== undefined && hwTimestamp !== appNow) ? (appNow - alignedTs) : 0;
     
     const prev = frameMapRef.current.get(normId);
     let period = prev?.periodMs || 0;
+    let jitter = prev?.jitterMs || 0;
     let burstCount = prev?.burstCount || 0;
     let burstStartTime = prev?.burstStartTime || 0;
 
@@ -471,40 +484,48 @@ const App: React.FC = () => {
       const rawPeriod = arrivalTs - prev.timestamp;
       
       // BATCH DETECTION & STABILIZATION:
-      // If messages arrive in a batch (rawPeriod < 2ms), they are likely from the same transport chunk.
-      // We calculate the period by averaging the time between batches.
-      if (rawPeriod > 2) {
-        // This is the start of a new "burst" or a standalone message
-        if (burstCount > 0 && burstStartTime > 0) {
+      if (rawPeriod > 0.5 || burstCount > 20) {
+        if (burstCount > 1 && burstStartTime > 0) {
           const totalTime = arrivalTs - burstStartTime;
           const avgPeriod = totalTime / burstCount;
           
-          // Smoothen the average period using EMA
-          const alpha = 0.15; 
+          // Use much heavier smoothing for software timestamps to prevent visual "jumping"
+          const alpha = (hwTimestamp !== undefined && hwTimestamp !== appNow) ? 0.3 : 0.05;
           period = (period * (1 - alpha)) + (avgPeriod * alpha);
-        } else if (burstCount === 0) {
-          // First time seeing this ID or after a long gap
-          period = rawPeriod;
+          
+          const currentJitter = Math.abs(avgPeriod - period);
+          jitter = (jitter * 0.95) + (currentJitter * 0.05);
+        } else {
+          const alpha = (hwTimestamp !== undefined && hwTimestamp !== appNow) ? 0.4 : 0.08;
+          period = (period * (1 - alpha)) + (rawPeriod * alpha);
+          
+          const currentJitter = Math.abs(rawPeriod - period);
+          jitter = (jitter * 0.95) + (currentJitter * 0.05);
         }
         
-        // Reset burst tracking for the next cycle
         burstStartTime = arrivalTs;
         burstCount = 1;
       } else {
-        // Part of an ongoing burst/batch
         burstCount++;
       }
       
-      // Sanity check: if period becomes wildly large (e.g. after a pause), reset it
-      if (period > 5000) {
+      if (period > 5000 || rawPeriod > 5000) {
         period = rawPeriod > 0 ? rawPeriod : 0;
+        jitter = 0;
         burstCount = 1;
         burstStartTime = arrivalTs;
       }
     } else {
-      // First frame of this ID
       burstStartTime = arrivalTs;
       burstCount = 1;
+    }
+
+    // Heuristic for "Expected Period" (rounding to nearest 5ms if stable)
+    let expected = 0;
+    if (period > 5 && jitter < (period * 0.1)) {
+      // If jitter is less than 10%, round to nearest 5ms or 10ms
+      const roundTo = period > 50 ? 10 : 5;
+      expected = Math.round(period / roundTo) * roundTo;
     }
 
     const newFrame: CANFrame = {
@@ -517,6 +538,8 @@ const App: React.FC = () => {
       direction: 'Rx',
       count: (prev?.count || 0) + 1,
       periodMs: Number((period || 0).toFixed(2)),
+      jitterMs: Number((jitter || 0).toFixed(2)),
+      expectedPeriodMs: expected,
       burstCount,
       burstStartTime,
       transportLatency: latency > 0 ? Number(latency.toFixed(1)) : 0
@@ -870,11 +893,17 @@ const App: React.FC = () => {
   useEffect(() => {
     const interval = setInterval(() => {
       const currentCount = allFramesRef.current.length;
-      setMsgPerSec(currentCount - lastFrameCountRef.current);
+      const diff = currentCount - lastFrameCountRef.current;
+      setMsgPerSec(diff);
       lastFrameCountRef.current = currentCount;
+      
+      // Calculate Load: Approx 128 bits per frame (CAN 2.0B Extended)
+      const bitsPerSec = diff * 128;
+      const load = (bitsPerSec / busSpeed) * 100;
+      setBusLoad(Math.min(100, load));
     }, 1000);
     return () => clearInterval(interval);
-  }, []);
+  }, [busSpeed]);
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -1104,6 +1133,9 @@ const App: React.FC = () => {
               }} onSaveTrace={() => handleSaveTrace(false)}
               onSaveDecoded={() => handleSaveDecoded(false)} isSavingDecoded={isSavingDecoded}
               msgPerSec={msgPerSec}
+              busLoad={busLoad}
+              busSpeed={busSpeed}
+              onBusSpeedChange={setBusSpeed}
               showBufferWarning={allFramesRef.current.length > 950000}
               onCloseWarning={() => {}}
               syncStatus={syncStatus}

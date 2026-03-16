@@ -8,6 +8,8 @@ export interface CANFrame {
   direction: 'Rx' | 'Tx';
   count: number;
   periodMs: number;
+  jitterMs?: number;
+  expectedPeriodMs?: number;
   burstCount?: number;
   burstStartTime?: number;
   transportLatency?: number; // Delay between hardware capture and app arrival (ms)

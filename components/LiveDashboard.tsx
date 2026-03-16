@@ -30,6 +30,9 @@ interface LiveDashboardProps {
   onSaveDecoded: () => void;
   isSavingDecoded: boolean;
   msgPerSec: number;
+  busLoad?: number;
+  busSpeed?: number;
+  onBusSpeedChange?: (speed: number) => void;
   showBufferWarning: boolean;
   onCloseWarning: () => void;
   onExportWideCsv?: () => void;
@@ -133,19 +136,64 @@ const LiveDashboard: React.FC<LiveDashboardProps> = (props) => {
       {/* Main Content Area */}
       <main className="flex-1 overflow-hidden flex flex-col min-h-0 bg-white">
         {tab === 'trace' && (
-          <div className="flex-1 p-4 md:p-6 overflow-hidden relative">
-            <CANMonitor 
-              frames={props.frames}
-              isPaused={props.isPaused}
-              library={props.library}
-              onClearTrace={props.onClearTrace}
-              onSaveTrace={props.onSaveTrace}
-              isSaving={props.isSaving}
-              autoSaveEnabled={props.autoSaveEnabled}
-              onToggleAutoSave={props.onToggleAutoSave}
-              msgPerSec={props.msgPerSec}
-              onExportWideCsv={props.onExportWideCsv}
-            />
+          <div className="flex-1 p-4 md:p-6 overflow-hidden relative flex flex-col gap-4">
+            {/* Bus Load Indicator */}
+            <div className="bg-slate-50 rounded-2xl p-4 border border-slate-200 flex items-center justify-between shrink-0">
+              <div className="flex items-center gap-4">
+                <div className="flex flex-col">
+                  <span className="text-[8px] font-orbitron font-black text-slate-400 uppercase tracking-widest">Bus_Load</span>
+                  <div className="flex items-center gap-2">
+                    <div className="w-32 h-2 bg-slate-200 rounded-full overflow-hidden">
+                      <div 
+                        className={`h-full transition-all duration-500 ${
+                          (props.busLoad || 0) > 80 ? 'bg-red-500' : (props.busLoad || 0) > 50 ? 'bg-amber-500' : 'bg-emerald-500'
+                        }`}
+                        style={{ width: `${props.busLoad || 0}%` }}
+                      />
+                    </div>
+                    <span className={`text-xs font-orbitron font-black ${(props.busLoad || 0) > 80 ? 'text-red-600' : 'text-slate-700'}`}>
+                      {(props.busLoad || 0).toFixed(1)}%
+                    </span>
+                  </div>
+                </div>
+                <div className="h-8 w-px bg-slate-200 mx-2" />
+                <div className="flex flex-col">
+                  <span className="text-[8px] font-orbitron font-black text-slate-400 uppercase tracking-widest">Bus_Speed</span>
+                  <select 
+                    value={props.busSpeed}
+                    onChange={(e) => props.onBusSpeedChange?.(Number(e.target.value))}
+                    className="bg-transparent text-xs font-orbitron font-black text-indigo-600 outline-none cursor-pointer"
+                  >
+                    <option value={125000}>125 kbps</option>
+                    <option value={250000}>250 kbps</option>
+                    <option value={500000}>500 kbps</option>
+                    <option value={1000000}>1 Mbps</option>
+                  </select>
+                </div>
+              </div>
+              
+              <div className="flex items-center gap-2 px-3 py-1.5 bg-white rounded-xl border border-slate-200 shadow-sm">
+                <Sparkles size={12} className="text-indigo-500" />
+                <span className="text-[9px] font-orbitron font-black text-slate-600 uppercase tracking-widest">
+                  {props.msgPerSec.toLocaleString()} MSG/S
+                </span>
+              </div>
+            </div>
+
+            <div className="flex-1 min-h-0">
+              <CANMonitor 
+                frames={props.frames}
+                isPaused={props.isPaused}
+                library={props.library}
+                onClearTrace={props.onClearTrace}
+                onSaveTrace={props.onSaveTrace}
+                isSaving={props.isSaving}
+                autoSaveEnabled={props.autoSaveEnabled}
+                onToggleAutoSave={props.onToggleAutoSave}
+                msgPerSec={props.msgPerSec}
+                onExportWideCsv={props.onExportWideCsv}
+              />
+            </div>
 
             {/* Buffer Warning Pop-up */}
             {props.showBufferWarning && (

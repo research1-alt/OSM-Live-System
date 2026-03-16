@@ -187,13 +187,27 @@ const LibraryPanel: React.FC<LibraryPanelProps> = ({ library, onUpdateLibrary, l
                     <div className="flex flex-col items-end gap-1.5 shrink-0">
                       <span className="text-[8px] bg-slate-100 border border-slate-200 px-2 py-1 rounded-md text-slate-500 font-black">DLC_{message.dlc}</span>
                       {latestFrame && (
-                        <span className={`text-[8px] font-black px-2 py-1 rounded-md border ${
-                          latestFrame.periodMs > 0 && latestFrame.periodMs < 1000 
-                            ? 'bg-emerald-50 border-emerald-100 text-emerald-600' 
-                            : 'bg-slate-50 border-slate-100 text-slate-400'
-                        }`}>
-                          {latestFrame.periodMs ? `${latestFrame.periodMs}ms` : '--'}
-                        </span>
+                        <div className="flex flex-col gap-1 items-end">
+                          <div className="flex items-center gap-1">
+                            {latestFrame.expectedPeriodMs ? (
+                              <span className="text-[7px] font-black text-indigo-400 uppercase tracking-tighter">Target: {latestFrame.expectedPeriodMs}ms</span>
+                            ) : null}
+                            <span className={`text-[8px] font-black px-2 py-1 rounded-md border ${
+                              latestFrame.periodMs > 0 && latestFrame.periodMs < 1000 
+                                ? 'bg-emerald-50 border-emerald-100 text-emerald-600' 
+                                : 'bg-slate-50 border-slate-100 text-slate-400'
+                            }`}>
+                              {latestFrame.periodMs ? `${latestFrame.periodMs}ms` : '--'}
+                            </span>
+                          </div>
+                          {latestFrame.jitterMs !== undefined && latestFrame.jitterMs > 0 && (
+                            <span className={`text-[7px] font-black px-1.5 py-0.5 rounded border ${
+                              latestFrame.jitterMs > 5 ? 'bg-red-50 border-red-100 text-red-500' : 'bg-slate-50 border-slate-100 text-slate-400'
+                            }`}>
+                              Jitter: ±{latestFrame.jitterMs}ms
+                            </span>
+                          )}
+                        </div>
                       )}
                     </div>
                   </div>
