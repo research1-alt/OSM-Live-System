@@ -463,20 +463,48 @@ const App: React.FC = () => {
     const latency = hwTimestamp !== undefined ? (appNow - alignedTs) : 0;
     
     const prev = frameMapRef.current.get(normId);
-    let period = 0;
+    let period = prev?.periodMs || 0;
+    let burstCount = prev?.burstCount || 0;
+    let burstStartTime = prev?.burstStartTime || 0;
 
     if (prev) {
       const rawPeriod = arrivalTs - prev.timestamp;
-      // Only update period if it's positive and sane
-      period = rawPeriod > 0 ? rawPeriod : prev.periodMs;
       
-      // Jitter reduction for arrival-based timestamps (only if no hardware clock)
-      if (hwTimestamp === undefined) {
-        const isBurst = rawPeriod < 2;
-        if (isBurst && prev.periodMs > 0) {
-          period = prev.periodMs;
+      // BATCH DETECTION & STABILIZATION:
+      // If messages arrive in a batch (rawPeriod < 2ms), they are likely from the same transport chunk.
+      // We calculate the period by averaging the time between batches.
+      if (rawPeriod > 2) {
+        // This is the start of a new "burst" or a standalone message
+        if (burstCount > 0 && burstStartTime > 0) {
+          const totalTime = arrivalTs - burstStartTime;
+          const avgPeriod = totalTime / burstCount;
+          
+          // Smoothen the average period using EMA
+          const alpha = 0.15; 
+          period = (period * (1 - alpha)) + (avgPeriod * alpha);
+        } else if (burstCount === 0) {
+          // First time seeing this ID or after a long gap
+          period = rawPeriod;
         }
+        
+        // Reset burst tracking for the next cycle
+        burstStartTime = arrivalTs;
+        burstCount = 1;
+      } else {
+        // Part of an ongoing burst/batch
+        burstCount++;
       }
+      
+      // Sanity check: if period becomes wildly large (e.g. after a pause), reset it
+      if (period > 5000) {
+        period = rawPeriod > 0 ? rawPeriod : 0;
+        burstCount = 1;
+        burstStartTime = arrivalTs;
+      }
+    } else {
+      // First frame of this ID
+      burstStartTime = arrivalTs;
+      burstCount = 1;
     }
 
     const newFrame: CANFrame = {
@@ -489,6 +517,8 @@ const App: React.FC = () => {
       direction: 'Rx',
       count: (prev?.count || 0) + 1,
       periodMs: Number((period || 0).toFixed(2)),
+      burstCount,
+      burstStartTime,
       transportLatency: latency > 0 ? Number(latency.toFixed(1)) : 0
     };
 
