@@ -448,7 +448,11 @@ const App: React.FC = () => {
           setDeviceHistory(prev => {
             if (prev.includes(hId)) return prev;
             const next = [hId, ...prev].slice(0, 10);
-            localStorage.setItem('osm_deviceHistory', JSON.stringify(next));
+            try {
+              localStorage.setItem('osm_deviceHistory', JSON.stringify(next));
+            } catch (e) {
+              console.warn("LocalStorage write failed:", e);
+            }
             return next;
           });
           addDebugLog(`HW_RECOGNIZED: ${hId}`);
@@ -1178,8 +1182,12 @@ const App: React.FC = () => {
   }, [hardwareId, user, sessionId]);
 
   const handleLogout = useCallback(() => {
-    localStorage.removeItem('osm_currentUser');
-    localStorage.removeItem('osm_sid');
+    try {
+      localStorage.removeItem('osm_currentUser');
+      localStorage.removeItem('osm_sid');
+    } catch (e) {
+      console.warn("LocalStorage clear failed:", e);
+    }
     setUser(null);
     setSessionId(null);
     setView('home');
@@ -1217,7 +1225,16 @@ const App: React.FC = () => {
     };
   }, [user, sessionId, handleLogout, addDebugLog]);
 
-  if (!user) return <AuthScreen onAuthenticated={(u, s) => { localStorage.setItem('osm_currentUser', JSON.stringify(u)); localStorage.setItem('osm_sid', s); setUser(u); setSessionId(s); }} />;
+  if (!user) return <AuthScreen onAuthenticated={(u, s) => { 
+    try {
+      localStorage.setItem('osm_currentUser', JSON.stringify(u)); 
+      localStorage.setItem('osm_sid', s); 
+    } catch (e) {
+      console.warn("LocalStorage write failed:", e);
+    }
+    setUser(u); 
+    setSessionId(s); 
+  }} />;
 
   return (
     <div className="h-full w-full font-inter flex flex-col min-h-0 overflow-hidden bg-white">

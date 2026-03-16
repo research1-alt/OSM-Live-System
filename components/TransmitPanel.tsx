@@ -21,12 +21,21 @@ const TransmitPanel: React.FC<TransmitPanelProps> = ({
   const [period, setPeriod] = useState(100);
   
   const [savedMessages, setSavedMessages] = useState<TransmitFrame[]>(() => {
-    const saved = localStorage.getItem('osm_saved_tx_messages');
-    try { return saved ? JSON.parse(saved) : []; } catch { return []; }
+    try {
+      const saved = localStorage.getItem('osm_saved_tx_messages');
+      return saved ? JSON.parse(saved) : [];
+    } catch (e) {
+      console.warn("LocalStorage access failed:", e);
+      return [];
+    }
   });
 
   useEffect(() => {
-    localStorage.setItem('osm_saved_tx_messages', JSON.stringify(savedMessages));
+    try {
+      localStorage.setItem('osm_saved_tx_messages', JSON.stringify(savedMessages));
+    } catch (e) {
+      console.warn("LocalStorage write failed:", e);
+    }
   }, [savedMessages]);
 
   const handleSendOnce = (id: string, dlc: number, data: string[]) => {

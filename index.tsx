@@ -9,7 +9,7 @@ if (!rootElement) {
 }
 
 // Global Error Handler for Boot Diagnostics
-window.onerror = function(message, source, lineno, colno, error) {
+const showBootError = (message: string, stack?: string) => {
   const errorDiv = document.createElement('div');
   errorDiv.id = 'boot-error-overlay';
   errorDiv.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:white;color:#1e293b;padding:40px 20px;z-index:9999;font-family:sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;';
@@ -18,18 +18,25 @@ window.onerror = function(message, source, lineno, colno, error) {
       <h1 style="font-size:18px;font-weight:900;margin:0 0 10px 0;letter-spacing:0.05em;">BOOT_CRITICAL_FAULT</h1>
       <p style="font-size:14px;margin:0 0 20px 0;opacity:0.8;line-height:1.5;">${message}</p>
       <div style="text-align:left;background:rgba(0,0,0,0.05);padding:10px;border-radius:6px;font-family:monospace;font-size:10px;overflow:auto;max-height:150px;margin-bottom:20px;">
-        ${error?.stack || 'No stack trace available'}
+        ${stack || 'No stack trace available'}
       </div>
       <button onclick="location.reload()" style="width:100%;padding:14px;background:#4f46e5;color:white;border:none;border-radius:8px;font-weight:bold;cursor:pointer;box-shadow:0 4px 6px -1px rgba(79, 70, 229, 0.4);">RETRY_BOOT</button>
       <p style="font-size:10px;margin-top:20px;color:#64748b;">If this persists, please clear app cache or check network connection.</p>
     </div>
   `;
   
-  // Prevent duplicate overlays
   if (!document.getElementById('boot-error-overlay')) {
     document.body.appendChild(errorDiv);
   }
+};
+
+window.onerror = function(message, source, lineno, colno, error) {
+  showBootError(String(message), error?.stack);
   return false;
+};
+
+window.onunhandledrejection = function(event) {
+  showBootError('Unhandled Promise Rejection', event.reason?.stack || String(event.reason));
 };
 
 const root = ReactDOM.createRoot(rootElement);

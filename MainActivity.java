@@ -37,10 +37,13 @@ import android.os.SystemClock;
 import android.provider.MediaStore;
 import android.provider.Settings;
 import android.util.Log;
+import android.webkit.ConsoleMessage;
 import android.webkit.GeolocationPermissions;
 import android.webkit.JavascriptInterface;
 import android.webkit.PermissionRequest;
 import android.webkit.WebChromeClient;
+import android.webkit.WebResourceError;
+import android.webkit.WebResourceRequest;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
@@ -280,7 +283,23 @@ public class MainActivity extends AppCompatActivity {
         webView.addJavascriptInterface(new NativeBleBridge(), "NativeBleBridge");
         webView.addJavascriptInterface(new NativeSerialBridge(), "NativeSerialBridge");
         webView.addJavascriptInterface(new WebAppInterface(), "AndroidInterface");
-        webView.setWebViewClient(new WebViewClient());
+        webView.setWebViewClient(new WebViewClient() {
+            @Override
+            public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) {
+                if (request.isForMainFrame()) {
+                    String errorMsg = "BOOT_FAULT: " + error.getDescription();
+                    Log.e("OSM_WEBVIEW", errorMsg);
+                    runOnUiThread(() -> Toast.makeText(MainActivity.this, errorMsg, Toast.LENGTH_LONG).show());
+                }
+            }
+
+            @Override
+            public void onPageFinished(WebView view, String url) {
+                super.onPageFinished(view, url);
+                Log.d("OSM_WEBVIEW", "Page Loaded: " + url);
+            }
+        });
+
         webView.setWebChromeClient(new WebChromeClient() {
             @Override
             public void onPermissionRequest(PermissionRequest r) { runOnUiThread(() -> r.grant(r.getResources())); }
@@ -288,6 +307,12 @@ public class MainActivity extends AppCompatActivity {
             @Override
             public void onGeolocationPermissionsShowPrompt(String origin, GeolocationPermissions.Callback callback) {
                 callback.invoke(origin, true, false);
+            }
+
+            @Override
+            public boolean onConsoleMessage(ConsoleMessage cm) {
+                Log.d("OSM_CONSOLE", cm.message() + " -- From line " + cm.lineNumber() + " of " + cm.sourceId());
+                return true;
             }
         });
     }

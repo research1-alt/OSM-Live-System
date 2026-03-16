@@ -45,7 +45,12 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthenticated }) => {
           await authService.syncSessionToCloud(cloudUser.user.email, cloudUser.user.userName, sid);
           onAuthenticated(cloudUser.user, sid);
         } else {
-          const localUsers = JSON.parse(localStorage.getItem('osm_users') || '[]');
+          let localUsers = [];
+          try {
+            localUsers = JSON.parse(localStorage.getItem('osm_users') || '[]');
+          } catch (e) {
+            console.warn("LocalStorage access failed:", e);
+          }
           const localUser = localUsers.find((u: any) => u.email === normalizedEmail && u.password === hashedPassword);
           
           if (localUser) {
@@ -99,9 +104,18 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthenticated }) => {
             const newUser = { email: normalizedEmail, userName, mobile, password: hashedPassword };
             await authService.registerUserInCloud(newUser);
             
-            const localUsers = JSON.parse(localStorage.getItem('osm_users') || '[]');
+            let localUsers = [];
+            try {
+              localUsers = JSON.parse(localStorage.getItem('osm_users') || '[]');
+            } catch (e) {
+              console.warn("LocalStorage access failed:", e);
+            }
             localUsers.push(newUser);
-            localStorage.setItem('osm_users', JSON.stringify(localUsers));
+            try {
+              localStorage.setItem('osm_users', JSON.stringify(localUsers));
+            } catch (e) {
+              console.warn("LocalStorage write failed:", e);
+            }
             
             alert('REGISTRATION_COMPLETE: Access Authorized. Please log in.');
             setMode('login');
@@ -121,14 +135,23 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthenticated }) => {
         
         await authService.registerUserInCloud(updatedUser);
         
-        const localUsers = JSON.parse(localStorage.getItem('osm_users') || '[]');
+        let localUsers = [];
+        try {
+          localUsers = JSON.parse(localStorage.getItem('osm_users') || '[]');
+        } catch (e) {
+          console.warn("LocalStorage access failed:", e);
+        }
         const existingIdx = localUsers.findIndex((u: any) => u.email === normalizedEmail);
         if (existingIdx > -1) {
           localUsers[existingIdx] = updatedUser;
         } else {
           localUsers.push(updatedUser);
         }
-        localStorage.setItem('osm_users', JSON.stringify(localUsers));
+        try {
+          localStorage.setItem('osm_users', JSON.stringify(localUsers));
+        } catch (e) {
+          console.warn("LocalStorage write failed:", e);
+        }
         
         alert('SUCCESS: Credentials updated. Proceeding to Login.');
         setMode('login');
