@@ -15,7 +15,7 @@ import { normalizeId, decodeSignal, formatIdForDisplay } from '@/utils/decoder';
 import { User, authService } from '@/services/authService';
 import { generateMockPacket } from '@/utils/canSim';
 
-const MAX_FRAME_LIMIT = 1000000; 
+const MAX_FRAME_LIMIT = 50000; 
 const BATCH_UPDATE_INTERVAL = 10; 
 const STALE_SIGNAL_TIMEOUT = 5000; 
 
@@ -586,8 +586,8 @@ const App: React.FC = () => {
     frameMapRef.current.set(normId, newFrame);
     allFramesRef.current.push(newFrame);
     
-    if (allFramesRef.current.length > 1010000) {
-      allFramesRef.current = allFramesRef.current.slice(-1000000);
+    if (allFramesRef.current.length > 110000) {
+      allFramesRef.current = allFramesRef.current.slice(-100000)
     }
 
     if (!isPaused) {
@@ -724,17 +724,21 @@ const App: React.FC = () => {
         const trimmed = line.trim();
         if (!trimmed) continue;
         
-        if (trimmed.startsWith('SYS:')) {
-          handleNewFrame(trimmed, 0, [], performance.now());
+        const [rawLine, timestampPart] = trimmed.split('|T:');
+        const arrivalTime = timestampPart ? parseFloat(timestampPart) : performance.now();
+        const content = rawLine.trim();
+
+        if (content.startsWith('SYS:')) {
+          handleNewFrame(content, 0, [], arrivalTime);
         } else {
-          const firstHash = trimmed.indexOf('#');
-          const secondHash = trimmed.indexOf('#', firstHash + 1);
+          const firstHash = content.indexOf('#');
+          const secondHash = content.indexOf('#', firstHash + 1);
           
           if (firstHash !== -1 && secondHash !== -1) {
-            const id = trimmed.substring(0, firstHash);
-            const dlcStr = trimmed.substring(firstHash + 1, secondHash);
+            const id = content.substring(0, firstHash);
+            const dlcStr = content.substring(firstHash + 1, secondHash);
             const dlc = parseInt(dlcStr) || 0;
-            const rawDataStr = trimmed.substring(secondHash + 1);
+            const rawDataStr = content.substring(secondHash + 1);
             
             const allHexPairs = rawDataStr.match(/[0-9A-Fa-f]{2}/g) || [];
             const dataParts = allHexPairs.slice(0, dlc);
@@ -744,9 +748,9 @@ const App: React.FC = () => {
             }
             
             const remainingParts = rawDataStr.split('#');
-            const hwTs = remainingParts.length >= 2 ? parseFloat(remainingParts[1]) : performance.now();
+            const hwTs = remainingParts.length >= 2 ? parseFloat(remainingParts[1]) : arrivalTime;
             
-            handleNewFrame(id, dlc, dataParts, isNaN(hwTs) ? performance.now() : hwTs);
+            handleNewFrame(id, dlc, dataParts, isNaN(hwTs) ? arrivalTime : hwTs);
           }
         }
       }
@@ -1119,6 +1123,9 @@ const App: React.FC = () => {
         // Update Trace List (the scrolling list)
         setFrames(prev => {
           const next = [...prev, ...batch];
+          if (next.length > MAX_FRAME_LIMIT) {
+            return next.slice(-MAX_FRAME_LIMIT);
+          }
           return next;
         });
       }
@@ -1357,7 +1364,7 @@ const App: React.FC = () => {
               busLoad={busLoad}
               busSpeed={busSpeed}
               onBusSpeedChange={setBusSpeed}
-              showBufferWarning={allFramesRef.current.length > 950000}
+              showBufferWarning={allFramesRef.current.length > 90000}
               onCloseWarning={() => {}}
               syncStatus={syncStatus}
               onManualSync={handleManualSync}
