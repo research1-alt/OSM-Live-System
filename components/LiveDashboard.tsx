@@ -205,7 +205,7 @@ const LiveDashboard: React.FC<LiveDashboardProps> = (props) => {
                   </div>
                   <h3 className="text-xl font-orbitron font-black text-slate-900 text-center uppercase tracking-tight mb-2">Buffer Critical</h3>
                   <p className="text-slate-500 text-center text-sm mb-8 leading-relaxed">
-                    Trace buffer has reached <span className="text-amber-600 font-bold">950,000</span> frames. Please save your trace or clear the buffer to maintain performance.
+                    Trace buffer has reached <span className="text-amber-600 font-bold">90,000</span> frames. Please save your trace or clear the buffer to maintain performance.
                   </p>
                   <div className="space-y-3">
                     <button 

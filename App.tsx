@@ -480,20 +480,27 @@ const App: React.FC = () => {
         setIsHwClockSynced(true);
       }
       
-      alignedTs = hwTimestamp + hwTimeOffsetRef.current;
+      let baseTs = hwTimestamp + hwTimeOffsetRef.current;
       
       // DRIFT & WRAP GUARD
-      if (Math.abs(alignedTs - appNow) > 2000) {
+      if (Math.abs(baseTs - appNow) > 2000) {
         hwTimeOffsetRef.current = appNow - hwTimestamp;
-        alignedTs = appNow;
+        baseTs = appNow;
+      }
+
+      // SPREAD IDENTICAL TIMESTAMPS:
+      // If multiple frames arrive in the same batch (same hwTimestamp),
+      // spread them by 0.1ms to maintain order and prevent 0ms delta.
+      const lastTs = lastArrivalTsRef.current;
+      if (baseTs <= lastTs) {
+        alignedTs = lastTs + 0.1;
+      } else {
+        alignedTs = baseTs;
       }
     } else {
       // SOFTWARE TIMESTAMP INTERPOLATION:
-      // If multiple frames arrive at the exact same performance.now(), 
-      // they are likely a BLE batch. We spread them by 0.1ms to maintain order and 
-      // prevent 0ms delta calculations which ruin jitter/period stats.
       const lastTs = lastArrivalTsRef.current;
-      if (Math.abs(appNow - lastTs) < 0.01) {
+      if (appNow <= lastTs) {
         alignedTs = lastTs + 0.1; 
       } else {
         alignedTs = appNow;

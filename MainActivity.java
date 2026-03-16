@@ -98,9 +98,13 @@ public class MainActivity extends AppCompatActivity {
 
     // Data buffering for high-speed CAN
     private final StringBuilder bleDataBuffer = new StringBuilder();
+    private final StringBuilder serialDataBuffer = new StringBuilder();
     private final StringBuilder lineBuffer = new StringBuilder();
+    private final StringBuilder serialLineBuffer = new StringBuilder();
     private long lastBleFlushTime = 0;
+    private long lastSerialFlushTime = 0;
     private static final int BLE_FLUSH_INTERVAL_MS = 8; // 125Hz flush rate for higher resolution
+    private static final int SERIAL_FLUSH_INTERVAL_MS = 8; // 125Hz flush rate for serial
 
     // Persistent stream for real-time logging
     private OutputStream activeLogOutputStream = null;
@@ -180,6 +184,7 @@ public class MainActivity extends AppCompatActivity {
         }
     };
 
+    @SuppressLint("UnspecifiedRegisterReceiverFlag")
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -331,6 +336,7 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
+    @SuppressWarnings("unused")
     public class NativeSerialBridge {
         @JavascriptInterface
         public void connectSerial(int baudRate) {
@@ -451,16 +457,61 @@ public class MainActivity extends AppCompatActivity {
 
     private void startSerialReadThread() {
         serialReadThread = new Thread(() -> {
-            byte[] buffer = new byte[1024];
+            android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_URGENT_AUDIO);
+            byte[] buffer = new byte[4096]; 
             while (isSerialConnected) {
                 int bytesRead = usbConnection.bulkTransfer(endpointIn, buffer, buffer.length, 1000);
                 if (bytesRead > 0) {
-                    String data = new String(buffer, 0, bytesRead);
-                    runOnUiThread(() -> evaluateJs("window.onNativeSerialData('" + data.replace("'", "\\'") + "')"));
+                    // Capture arrival time as soon as bulkTransfer returns
+                    double arrivalTime = SystemClock.elapsedRealtimeNanos() / 1000000.0;
+                    String data = new String(buffer, 0, bytesRead, java.nio.charset.StandardCharsets.UTF_8);
+                    
+                    synchronized (serialDataBuffer) {
+                        for (int i = 0; i < data.length(); i++) {
+                            char c = data.charAt(i);
+                            if (c == '\n' || c == '\r') {
+                                if (serialLineBuffer.length() > 0) {
+                                    String line = serialLineBuffer.toString().trim();
+                                    if (!line.isEmpty()) {
+                                        // Append the arrival time of the block this line was part of
+                                        serialDataBuffer.append(line).append("|T:").append(String.format(java.util.Locale.US, "%.3f", arrivalTime)).append("\n");
+                                    }
+                                    serialLineBuffer.setLength(0);
+                                }
+                            } else {
+                                serialLineBuffer.append(c);
+                            }
+                        }
+                    }
+
+                    long currentTime = SystemClock.elapsedRealtime();
+                    if (currentTime - lastSerialFlushTime >= SERIAL_FLUSH_INTERVAL_MS) {
+                        flushSerialDataToJs();
+                        lastSerialFlushTime = currentTime;
+                    }
                 }
             }
         });
         serialReadThread.start();
+    }
+
+    private void flushSerialDataToJs() {
+        final String dataToFlush;
+        synchronized (serialDataBuffer) {
+            if (serialDataBuffer.length() == 0) return;
+            dataToFlush = serialDataBuffer.toString();
+            serialDataBuffer.setLength(0);
+        }
+
+        runOnUiThread(() -> {
+            if (webView != null) {
+                String escaped = dataToFlush.replace("\\", "\\\\")
+                        .replace("'", "\\'")
+                        .replace("\n", "\\n")
+                        .replace("\r", "");
+                webView.evaluateJavascript("if(window.onNativeSerialData){window.onNativeSerialData('" + escaped + "');}", null);
+            }
+        });
     }
 
     private void cleanupSerial() {
@@ -478,6 +529,7 @@ public class MainActivity extends AppCompatActivity {
         endpointOut = null;
     }
 
+    @SuppressWarnings("unused")
     public class NativeBleBridge {
         @JavascriptInterface
         public void openBluetoothSettings() {
@@ -965,6 +1017,7 @@ public class MainActivity extends AppCompatActivity {
         });
     }
 
+    @SuppressWarnings("unused")
     public class WebAppInterface {
         @JavascriptInterface
         public boolean isNativeApp() { return true; }
