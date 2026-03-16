@@ -78,6 +78,8 @@ const App: React.FC = () => {
   });
   const [baudRate, setBaudRate] = useState(115200);
   const [debugLog, setDebugLog] = useState<string[]>([]);
+  const [rawLines, setRawLines] = useState<string[]>([]);
+  const [showDebug, setShowDebug] = useState(false);
   
   // Background Logging Queue
   const loggingQueueRef = useRef<CANFrame[]>([]);
@@ -104,6 +106,15 @@ const App: React.FC = () => {
     const time = new Date().toLocaleTimeString('en-GB', { hour12: false });
     setDebugLog(prev => [`[${time}] ${msg}`, ...prev].slice(0, 50));
   }, []);
+
+  useEffect(() => {
+    addDebugLog("APP_START: OSM Live Monitoring initialized.");
+    if ((window as any).NativeBleBridge) {
+      addDebugLog("NATIVE: Android Bridge detected.");
+    } else {
+      addDebugLog("WEB: Browser environment detected.");
+    }
+  }, [addDebugLog]);
 
   // Background Logging Effect
   useEffect(() => {
@@ -571,6 +582,9 @@ const App: React.FC = () => {
             const trimmed = line.trim();
             if (!trimmed) continue;
             
+            // Add to raw lines for debugging
+            setRawLines(prev => [trimmed, ...prev.slice(0, 19)]);
+
             // DIAGNOSTIC: Log full line length
             if (allFramesRef.current.length % 100 === 0) {
               addDebugLog(`NATIVE_LINE: Full line reassembled: ${trimmed.length} chars. Content: ${trimmed.substring(0, 20)}...`);
@@ -592,17 +606,21 @@ const App: React.FC = () => {
               continue;
             }
             
-            // NEW ROBUST PARSER: Substring-based to avoid issues with extra '#' delimiters
+            // ROBUST PARSER: Try multiple formats
+            let id = "";
+            let dlc = 0;
+            let dataParts: string[] = [];
+            let frameHwTimestamp = currentBatchTimestampRef.current;
+
             const firstHash = trimmed.indexOf('#');
             const secondHash = trimmed.indexOf('#', firstHash + 1);
             
             if (firstHash !== -1 && secondHash !== -1) {
-              const id = trimmed.substring(0, firstHash);
+              // Format: ID#DLC#DATA or ID#DLC#DATA#TIMESTAMP
+              id = trimmed.substring(0, firstHash);
               const dlcStr = trimmed.substring(firstHash + 1, secondHash);
-              const dlc = parseInt(dlcStr) || 0;
+              dlc = parseInt(dlcStr) || 0;
               let rawDataStr = trimmed.substring(secondHash + 1);
-              
-              let frameHwTimestamp = currentBatchTimestampRef.current;
               
               const tsMatch = rawDataStr.match(/TS:(\d+\.?\d*)/i);
               if (tsMatch) {
@@ -612,15 +630,10 @@ const App: React.FC = () => {
               }
 
               // STRICT HEX PARSER: Extract all 2-digit hex pairs
-              // This prevents IDs or other fields from being merged into data bytes
               const allHexPairs = rawDataStr.match(/[0-9A-Fa-f]{2}/g) || [];
-              const dataParts = allHexPairs.slice(0, dlc);
+              dataParts = allHexPairs.slice(0, dlc);
               
-              // Padding if necessary
-              while (dataParts.length < dlc && dataParts.length < 8) {
-                dataParts.push("00");
-              }
-
+              // Check for trailing timestamp in the raw string (ESP32 micros)
               const remainingParts = rawDataStr.split('#');
               if (remainingParts.length >= 2) {
                 const esp32Micros = parseInt(remainingParts[1]);
@@ -628,8 +641,39 @@ const App: React.FC = () => {
                   frameHwTimestamp = esp32Micros / 1000.0;
                 }
               }
-              
+            } else if (firstHash !== -1) {
+              // Format: ID#DATA (No DLC)
+              id = trimmed.substring(0, firstHash);
+              const rawDataStr = trimmed.substring(firstHash + 1);
+              const allHexPairs = rawDataStr.match(/[0-9A-Fa-f]{2}/g) || [];
+              dataParts = allHexPairs;
+              dlc = dataParts.length;
+            } else {
+              // Format: Space separated ID DLC DATA...
+              const parts = trimmed.split(/\s+/);
+              if (parts.length >= 3) {
+                id = parts[0];
+                dlc = parseInt(parts[1]) || 0;
+                dataParts = parts.slice(2, 2 + dlc).filter(p => /^[0-9A-Fa-f]{1,2}$/.test(p));
+                if (dataParts.length === 0 && parts.length > 2) {
+                  // Maybe ID DATA (no DLC)
+                  dataParts = parts.slice(1).filter(p => /^[0-9A-Fa-f]{1,2}$/.test(p));
+                  dlc = dataParts.length;
+                }
+              }
+            }
+
+            if (id && dataParts.length > 0) {
+              // Padding if necessary
+              while (dataParts.length < dlc && dataParts.length < 8) {
+                dataParts.push("00");
+              }
               handleNewFrame(id, dlc, dataParts, frameHwTimestamp);
+            } else {
+              // DIAGNOSTIC: Log lines that failed all parsing attempts
+              if (allFramesRef.current.length % 50 === 0) {
+                addDebugLog(`PARSE_FAIL: Line could not be decoded: "${trimmed}"`);
+              }
             }
           }
         }
@@ -801,32 +845,58 @@ const App: React.FC = () => {
           const trimmed = line.trim();
           if (!trimmed) continue;
           
+          // Add to raw lines for debugging
+          setRawLines(prev => [trimmed, ...prev.slice(0, 19)]);
+
           if (trimmed.startsWith('SYS:')) {
             handleNewFrame(trimmed, 0, [], arrivalTime);
           } else {
             // UNIFIED ROBUST PARSER for Web Bluetooth
+            let id = "";
+            let dlc = 0;
+            let dataParts: string[] = [];
+            let hwTs = arrivalTime;
+
             const firstHash = trimmed.indexOf('#');
             const secondHash = trimmed.indexOf('#', firstHash + 1);
             
             if (firstHash !== -1 && secondHash !== -1) {
-              const id = trimmed.substring(0, firstHash);
+              id = trimmed.substring(0, firstHash);
               const dlcStr = trimmed.substring(firstHash + 1, secondHash);
-              const dlc = parseInt(dlcStr) || 0;
+              dlc = parseInt(dlcStr) || 0;
               const rawDataStr = trimmed.substring(secondHash + 1);
               
-              // Extract hex pairs strictly
               const allHexPairs = rawDataStr.match(/[0-9A-Fa-f]{2}/g) || [];
-              const dataParts = allHexPairs.slice(0, dlc);
+              dataParts = allHexPairs.slice(0, dlc);
               
+              const remainingParts = rawDataStr.split('#');
+              if (remainingParts.length >= 2) {
+                const tsVal = parseFloat(remainingParts[1]);
+                if (!isNaN(tsVal)) hwTs = tsVal;
+              }
+            } else if (firstHash !== -1) {
+              id = trimmed.substring(0, firstHash);
+              const rawDataStr = trimmed.substring(firstHash + 1);
+              dataParts = rawDataStr.match(/[0-9A-Fa-f]{2}/g) || [];
+              dlc = dataParts.length;
+            } else {
+              const parts = trimmed.split(/\s+/);
+              if (parts.length >= 3) {
+                id = parts[0];
+                dlc = parseInt(parts[1]) || 0;
+                dataParts = parts.slice(2, 2 + dlc).filter(p => /^[0-9A-Fa-f]{1,2}$/.test(p));
+              }
+            }
+
+            if (id && dataParts.length > 0) {
               while (dataParts.length < dlc && dataParts.length < 8) {
                 dataParts.push("00");
               }
-              
-              // Check for trailing timestamp in the raw string
-              const remainingParts = rawDataStr.split('#');
-              const hwTs = remainingParts.length >= 2 ? parseFloat(remainingParts[1]) : arrivalTime;
-              
-              handleNewFrame(id, dlc, dataParts, isNaN(hwTs) ? arrivalTime : hwTs);
+              handleNewFrame(id, dlc, dataParts, hwTs);
+            } else {
+              if (allFramesRef.current.length % 50 === 0) {
+                addDebugLog(`WEB_PARSE_FAIL: "${trimmed}"`);
+              }
             }
           }
         }
@@ -1127,6 +1197,73 @@ const App: React.FC = () => {
               onManualSync={handleManualSync}
             />
           )}
+        </div>
+      )}
+      {/* Debug Toggle Button */}
+      <button 
+        onClick={() => setShowDebug(!showDebug)}
+        className="fixed bottom-4 right-4 z-[999] p-3 bg-slate-900 text-white rounded-full shadow-xl hover:bg-slate-800 transition-all active:scale-95"
+        title="Toggle Debug Console"
+      >
+        <ShieldCheck size={20} className={showDebug ? 'text-emerald-400' : 'text-slate-400'} />
+      </button>
+
+      {/* Debug Console Overlay */}
+      {showDebug && (
+        <div className="fixed inset-x-4 bottom-20 top-20 z-[998] bg-slate-900/95 backdrop-blur-md rounded-3xl border border-white/10 shadow-2xl flex flex-col overflow-hidden animate-in fade-in zoom-in duration-200">
+          <div className="p-4 border-b border-white/10 flex items-center justify-between bg-white/5">
+            <div className="flex items-center gap-3">
+              <ShieldCheck className="text-emerald-400" size={18} />
+              <h3 className="text-xs font-orbitron font-black text-white uppercase tracking-widest">System_Diagnostics</h3>
+            </div>
+            <button onClick={() => setShowDebug(false)} className="p-2 text-slate-400 hover:text-white">
+              <X size={20} />
+            </button>
+          </div>
+          
+          <div className="flex-1 overflow-hidden flex flex-col md:flex-row">
+            {/* System Logs */}
+            <div className="flex-1 flex flex-col border-b md:border-b-0 md:border-r border-white/10">
+              <div className="p-2 bg-white/5 border-b border-white/10 text-[10px] font-mono text-emerald-400/70 uppercase tracking-widest px-4">
+                System_Logs
+              </div>
+              <div className="flex-1 overflow-y-auto p-4 font-mono text-[10px] space-y-1">
+                {debugLog.map((log, i) => (
+                  <div key={i} className="text-slate-300 border-l border-white/10 pl-2 py-0.5">
+                    {log}
+                  </div>
+                ))}
+                {debugLog.length === 0 && <div className="text-slate-600 italic">No logs recorded...</div>}
+              </div>
+            </div>
+
+            {/* Raw Data Stream */}
+            <div className="flex-1 flex flex-col">
+              <div className="p-2 bg-white/5 border-b border-white/10 text-[10px] font-mono text-amber-400/70 uppercase tracking-widest px-4">
+                Raw_BLE_Stream (Last 20)
+              </div>
+              <div className="flex-1 overflow-y-auto p-4 font-mono text-[10px] space-y-1 bg-black/20">
+                {rawLines.map((line, i) => (
+                  <div key={i} className="text-amber-200/80 border-l border-amber-500/20 pl-2 py-0.5 break-all">
+                    {line}
+                  </div>
+                ))}
+                {rawLines.length === 0 && <div className="text-slate-600 italic">Waiting for data...</div>}
+              </div>
+            </div>
+          </div>
+
+          <div className="p-4 bg-black/40 border-t border-white/10 flex items-center justify-between">
+            <div className="text-[9px] font-mono text-slate-500 uppercase tracking-widest">
+              Status: {bridgeStatus} | Rate: {msgPerSec} msg/s
+            </div>
+            <button 
+              onClick={() => { setDebugLog([]); setRawLines([]); }}
+              className="text-[9px] font-mono text-slate-400 hover:text-white uppercase tracking-widest px-3 py-1 border border-white/10 rounded-lg"
+            >
+              Clear_All
+            </button>
+          </div>
         </div>
       )}
     </div>
