@@ -15,10 +15,8 @@ import { normalizeId, decodeSignal, formatIdForDisplay } from '@/utils/decoder';
 import { User, authService } from '@/services/authService';
 import { generateMockPacket } from '@/utils/canSim';
 
-const MAX_FRAME_LIMIT = 50000; 
-const BATCH_UPDATE_INTERVAL = 10; 
-const STALE_SIGNAL_TIMEOUT = 5000; 
-
+const MAX_FRAME_LIMIT = 10000; 
+const MAX_ALL_FRAMES_LIMIT = 100000;
 // Common BLE UART Service UUIDs
 const UART_SERVICE_UUID = "6e400001-b5a3-f393-e0a9-e50e24dcca9e"; // Nordic NUS
 const HM10_SERVICE_UUID = "0000ffe0-0000-1000-8000-00805f9b34fb"; // HM-10
@@ -78,7 +76,7 @@ const App: React.FC = () => {
   const [isSavingDecoded, setIsSavingDecoded] = useState(false);
   const [autoSaveEnabled, setAutoSaveEnabled] = useState(false);
   const [msgPerSec, setMsgPerSec] = useState(0);
-  const [busSpeed, setBusSpeed] = useState(250000); 
+  const [busSpeed, setBusSpeed] = useState(500000); 
   const [busLoad, setBusLoad] = useState(0);
   const lastFrameCountRef = useRef(0);
   const hasTriggeredAutoSaveRef = useRef(false);
@@ -593,8 +591,9 @@ const App: React.FC = () => {
     frameMapRef.current.set(normId, newFrame);
     allFramesRef.current.push(newFrame);
     
-    if (allFramesRef.current.length > 110000) {
-      allFramesRef.current = allFramesRef.current.slice(-100000)
+    // Performance Optimization: Only trim the array occasionally, not on every frame
+    if (allFramesRef.current.length > MAX_ALL_FRAMES_LIMIT + 20000) {
+      allFramesRef.current = allFramesRef.current.slice(-MAX_ALL_FRAMES_LIMIT);
     }
 
     if (!isPaused) {
@@ -649,35 +648,20 @@ const App: React.FC = () => {
               const dlc = parseInt(dlcStr) || 0;
               let rawDataStr = content.substring(secondHash + 1);
               
-              // Check for ESP32-side hardware timestamp (trailing #timestamp)
-              const remainingParts = rawDataStr.split('#');
-              if (remainingParts.length >= 2) {
-                const esp32Micros = parseInt(remainingParts[1]);
-                if (!isNaN(esp32Micros)) {
-                  // If we have ESP32 micros, it's the most accurate
-                  // We need to align it to performance.now()
-                  // For now, we'll treat it as a relative offset if it's small, 
-                  // or absolute if it's large.
-                  // But usually, the |T: from Android is enough if ESP32 doesn't send it.
-                  // If ESP32 sends it, we prefer it.
-                  const esp32Ms = esp32Micros / 1000.0;
-                  if (javaTimeOffsetRef.current === null) {
-                    javaTimeOffsetRef.current = performance.now() - esp32Ms;
-                  }
-                  frameHwTimestamp = esp32Ms + javaTimeOffsetRef.current;
-                }
-                rawDataStr = remainingParts[0];
-              }
-
-              // Extract hex pairs strictly
-              const allHexPairs = rawDataStr.match(/[0-9A-Fa-f]{2}/g) || [];
+              // Extract data portion. User's code: ID#DLC#D1,D2,D3...
+              const parts = rawDataStr.split('#');
+              const dataString = parts[0] || "";
+              
+              // Extract hex pairs. User's code uses commas, match handles it.
+              const allHexPairs = dataString.match(/[0-9A-Fa-f]{2}/g) || [];
               const dataParts = allHexPairs.slice(0, dlc);
               
               while (dataParts.length < dlc && dataParts.length < 8) {
                 dataParts.push("00");
               }
               
-              handleNewFrame(id, dlc, dataParts, frameHwTimestamp);
+              // User's code doesn't send hardware timestamp, use arrivalTime
+              handleNewFrame(id, dlc, dataParts, arrivalTime);
             }
           }
         }
@@ -747,22 +731,21 @@ const App: React.FC = () => {
             const dlc = parseInt(dlcStr) || 0;
             const rawDataStr = content.substring(secondHash + 1);
             
-            const allHexPairs = rawDataStr.match(/[0-9A-Fa-f]{2}/g) || [];
+            const parts = rawDataStr.split('#');
+            const dataString = parts[0] || "";
+            const hwTsString = parts[1] || "";
+            
+            const allHexPairs = dataString.match(/[0-9A-Fa-f]{2}/g) || [];
             const dataParts = allHexPairs.slice(0, dlc);
             
             while (dataParts.length < dlc && dataParts.length < 8) {
               dataParts.push("00");
             }
             
-            const remainingParts = rawDataStr.split('#');
             let hwTs = arrivalTime;
-            
-            if (remainingParts.length >= 2) {
-              const val = parseFloat(remainingParts[1]);
+            if (hwTsString) {
+              const val = parseFloat(hwTsString);
               if (!isNaN(val)) {
-                // If the value is from ESP32 micros(), convert to ms
-                // Heuristic: micros() is usually much larger than performance.now() 
-                // or we just assume it's us if it comes from the hardware 4th field.
                 hwTs = val / 1000;
               }
             }
@@ -864,17 +847,20 @@ const App: React.FC = () => {
               const dlc = parseInt(dlcStr) || 0;
               const rawDataStr = trimmed.substring(secondHash + 1);
               
-              const allHexPairs = rawDataStr.match(/[0-9A-Fa-f]{2}/g) || [];
+              // Extract data portion. User's code: ID#DLC#D1,D2,D3...
+              const parts = rawDataStr.split('#');
+              const dataString = parts[0] || "";
+              
+              // Extract hex pairs. User's code uses commas, match handles it.
+              const allHexPairs = dataString.match(/[0-9A-Fa-f]{2}/g) || [];
               const dataParts = allHexPairs.slice(0, dlc);
               
               while (dataParts.length < dlc && dataParts.length < 8) {
                 dataParts.push("00");
               }
               
-              const remainingParts = rawDataStr.split('#');
-              const hwTs = remainingParts.length >= 2 ? parseFloat(remainingParts[1]) : performance.now();
-              
-              handleNewFrame(id, dlc, dataParts, isNaN(hwTs) ? performance.now() : hwTs);
+              // User's code doesn't send hardware timestamp, use performance.now()
+              handleNewFrame(id, dlc, dataParts, performance.now());
             }
           }
         }
@@ -1035,19 +1021,20 @@ const App: React.FC = () => {
               const dlc = parseInt(dlcStr) || 0;
               const rawDataStr = trimmed.substring(secondHash + 1);
               
-              // Extract hex pairs strictly
-              const allHexPairs = rawDataStr.match(/[0-9A-Fa-f]{2}/g) || [];
+              // Extract data portion. User's code: ID#DLC#D1,D2,D3...
+              const parts = rawDataStr.split('#');
+              const dataString = parts[0] || "";
+              
+              // Extract hex pairs. User's code uses commas, match handles it.
+              const allHexPairs = dataString.match(/[0-9A-Fa-f]{2}/g) || [];
               const dataParts = allHexPairs.slice(0, dlc);
               
               while (dataParts.length < dlc && dataParts.length < 8) {
                 dataParts.push("00");
               }
               
-              // Check for trailing timestamp in the raw string
-              const remainingParts = rawDataStr.split('#');
-              const hwTs = remainingParts.length >= 2 ? parseFloat(remainingParts[1]) : arrivalTime;
-              
-              handleNewFrame(id, dlc, dataParts, isNaN(hwTs) ? arrivalTime : hwTs);
+              // User's code doesn't send hardware timestamp, use arrivalTime
+              handleNewFrame(id, dlc, dataParts, arrivalTime);
             }
           }
         }
