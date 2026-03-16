@@ -1,5 +1,5 @@
 {
-  "name": "Copy of Copy of Copy of Remix: Mobile OSM LIVE SYSTEM Final",
+  "name": "OSM LIVE - Professional CAN-Bus Monitor",
   "description": "Professional CAN-Bus monitoring and diagnostic HUD for OSM hardware. Features instant background connectivity, automated spreadsheet logging, real-time telemetry, and AI-driven trace analysis.",
   "requestFramePermissions": [
     "serial",
