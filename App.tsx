@@ -756,6 +756,32 @@ const App: React.FC = () => {
     };
   }, [handleNewFrame, addDebugLog]);
 
+  const disconnectSerial = async () => {
+    keepReadingRef.current = false;
+    
+    if (serialReaderRef.current) {
+      try { await serialReaderRef.current.cancel(); } catch(e){}
+    }
+    
+    if (serialWriterRef.current) {
+      try { serialWriterRef.current.releaseLock(); } catch(e){}
+      serialWriterRef.current = null;
+    }
+
+    if (serialPortRef.current) {
+      try { await serialPortRef.current.close(); } catch(e){}
+      serialPortRef.current = null;
+    }
+
+    if (window.NativeSerialBridge) {
+      window.NativeSerialBridge.disconnectSerial();
+    }
+
+    setBridgeStatus('disconnected');
+    setHwStatus('offline');
+    addDebugLog("SERIAL: Connection reset.");
+  };
+
   const connectWebSerial = async () => {
     // Check for Native Bridge First (Android App Context)
     if (window.NativeSerialBridge) {
@@ -1303,6 +1329,7 @@ const App: React.FC = () => {
                   onSetHardwareMode={setHardwareMode}
                   baudRate={baudRate}
                   onSetBaudRate={setBaudRate}
+                  onAddDebugLog={addDebugLog}
                 />
               </div>
             </div>

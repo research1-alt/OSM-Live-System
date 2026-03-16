@@ -20,6 +20,7 @@ interface ConnectionPanelProps {
   onManualSync?: () => void;
   baudRate?: number;
   onSetBaudRate?: (rate: number) => void;
+  onAddDebugLog?: (log: string) => void;
 }
 
 const ConnectionPanel: React.FC<ConnectionPanelProps> = ({ 
@@ -37,18 +38,44 @@ const ConnectionPanel: React.FC<ConnectionPanelProps> = ({
   syncStatus = 'idle',
   onManualSync,
   baudRate = 115200,
-  onSetBaudRate
+  onSetBaudRate,
+  onAddDebugLog
 }) => {
   const [isNative, setIsNative] = useState(false);
   const [btSupported, setBtSupported] = useState(true);
   const [serialSupported, setSerialSupported] = useState(true);
+  const [usbDevices, setUsbDevices] = useState<any[]>([]);
   const [showTroubleshooting, setShowTroubleshooting] = useState(false);
+
+  const checkUsbDevices = async () => {
+    if ('usb' in navigator) {
+      try {
+        const devices = await navigator.usb.getDevices();
+        setUsbDevices(devices);
+      } catch (err) {
+        console.error("USB Check Error:", err);
+      }
+    }
+  };
   const isDesktop = useMemo(() => !isNative && /Windows|Macintosh|Linux/.test(navigator.userAgent), [isNative]);
+
+  const requestUsbPermission = async () => {
+    if ('usb' in navigator) {
+      try {
+        const device = await navigator.usb.requestDevice({ filters: [] });
+        onAddDebugLog?.(`USB: Permission granted for ${device.productName}`);
+        checkUsbDevices();
+      } catch (err: any) {
+        onAddDebugLog?.(`USB_PERMISSION_ERROR: ${err.message}`);
+      }
+    }
+  };
 
   useEffect(() => {
     setIsNative(!!(window as any).NativeBleBridge);
     setBtSupported(!!(navigator as any).bluetooth || !!(window as any).NativeBleBridge);
     setSerialSupported(!!(navigator as any).serial || !!(window as any).NativeSerialBridge);
+    checkUsbDevices();
   }, []);
 
   const hasGattError = useMemo(() => debugLog.some(log => log.includes('GATT') || log.includes('BLE_FAULT')), [debugLog]);
@@ -211,6 +238,45 @@ const ConnectionPanel: React.FC<ConnectionPanelProps> = ({
                         <li><b>Android App:</b> Grant USB permission when prompted.</li>
                         <li><b>Chrome:</b> Enable <code>#enable-experimental-web-platform-features</code> in <code>chrome://flags</code>.</li>
                       </ul>
+
+                      <div className="mt-2 p-3 bg-slate-100 rounded-xl border border-slate-200">
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-[8px] font-orbitron font-black text-slate-500 uppercase tracking-widest">USB_DEVICE_SCAN</span>
+                          <button 
+                            onClick={checkUsbDevices}
+                            className="text-[8px] font-orbitron font-black text-indigo-600 uppercase hover:underline"
+                          >
+                            REFRESH
+                          </button>
+                        </div>
+                        
+                        <button 
+                          onClick={requestUsbPermission}
+                          className="w-full mb-2 py-1 bg-white border border-indigo-100 rounded text-[8px] font-orbitron font-black text-indigo-600 uppercase hover:bg-indigo-50 transition-all"
+                        >
+                          Request_USB_Access
+                        </button>
+
+                        {usbDevices.length > 0 ? (
+                          <div className="space-y-1">
+                            {usbDevices.map((dev, i) => (
+                              <div key={i} className="text-[9px] text-slate-600 font-mono bg-white p-1 rounded border border-slate-200">
+                                {dev.productName || 'Unknown Device'} (VID: {dev.vendorId}, PID: {dev.productId})
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="text-[9px] text-slate-400 italic">No USB devices detected. Check OTG/Cable.</p>
+                        )}
+                      </div>
+
+                      {!serialSupported && (
+                        <div className="mt-2 p-2 bg-red-50 border border-red-100 rounded-lg">
+                          <p className="text-[9px] text-red-600 font-bold leading-tight">
+                            ⚠️ SERIAL_NOT_SUPPORTED: Your browser does not support Web Serial. Use Chrome on Android or the Native App.
+                          </p>
+                        </div>
+                      )}
                       
                       <div className="pt-2 border-t border-slate-100">
                         <label className="text-[8px] font-orbitron font-black text-slate-400 uppercase tracking-widest mb-1 block">

@@ -19,8 +19,11 @@ import android.bluetooth.le.ScanCallback;
 import android.bluetooth.le.ScanResult;
 import android.bluetooth.le.ScanSettings;
 import android.content.ContentValues;
+import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
+import android.app.PendingIntent;
 import android.content.pm.PackageManager;
 import android.location.LocationManager;
 import android.media.MediaScannerConnection;
@@ -152,11 +155,40 @@ public class MainActivity extends AppCompatActivity {
             }
     );
 
+    private static final String ACTION_USB_PERMISSION = "com.example.osmlive.USB_PERMISSION";
+    private PendingIntent permissionIntent;
+
+    private static int lastRequestedBaudRate = 115200;
+
+    private final BroadcastReceiver usbReceiver = new BroadcastReceiver() {
+        public void onReceive(Context context, Intent intent) {
+            String action = intent.getAction();
+            if (ACTION_USB_PERMISSION.equals(action)) {
+                synchronized (this) {
+                    UsbDevice device = (UsbDevice) intent.getParcelableExtra(UsbManager.EXTRA_DEVICE);
+                    if (intent.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED, false)) {
+                        if (device != null) {
+                            // Permission granted, try connecting again with stored baud rate
+                            new NativeSerialBridge().connectSerial(lastRequestedBaudRate);
+                        }
+                    } else {
+                        Log.d(TAG, "permission denied for device " + device);
+                        evaluateJs("window.onNativeSerialStatus('error', 'USB Permission Denied')");
+                    }
+                }
+            }
+        }
+    };
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
         webView = findViewById(R.id.webView);
+
+        permissionIntent = PendingIntent.getBroadcast(this, 0, new Intent(ACTION_USB_PERMISSION), PendingIntent.FLAG_IMMUTABLE);
+        IntentFilter filter = new IntentFilter(ACTION_USB_PERMISSION);
+        registerReceiver(usbReceiver, filter);
 
         initBluetooth();
         createNotificationChannel();
@@ -164,7 +196,7 @@ public class MainActivity extends AppCompatActivity {
         setupWebView();
 
         // Updated to current App URL
-        webView.loadUrl("https://ais-dev-bg3wxoksngtqqwjyse4eot-127120545089.asia-southeast1.run.app");
+        webView.loadUrl("https://ais-dev-etfeddvfdw7dqilh4njlaq-127120545089.asia-southeast1.run.app");
         setupBackNavigation();
     }
 
@@ -276,31 +308,71 @@ public class MainActivity extends AppCompatActivity {
     public class NativeSerialBridge {
         @JavascriptInterface
         public void connectSerial(int baudRate) {
+            lastRequestedBaudRate = baudRate;
             runOnUiThread(() -> {
                 usbManager = (UsbManager) getSystemService(Context.USB_SERVICE);
                 HashMap<String, UsbDevice> deviceList = usbManager.getDeviceList();
-                Iterator<UsbDevice> deviceIterator = deviceList.values().iterator();
-
-                if (!deviceIterator.hasNext()) {
-                    evaluateJs("window.onNativeSerialStatus('error', 'No USB devices found')");
+                
+                if (deviceList.isEmpty()) {
+                    evaluateJs("window.onNativeSerialStatus('error', 'No USB devices found. Connect ESP32 via OTG.')");
                     return;
                 }
 
-                usbDevice = deviceIterator.next(); // Just take the first one for now
+                // Try to find a device that looks like a serial port
+                usbDevice = null;
+                for (UsbDevice device : deviceList.values()) {
+                    // Just take the first one for now
+                    usbDevice = device;
+                    break;
+                }
+
+                if (usbDevice == null) {
+                    evaluateJs("window.onNativeSerialStatus('error', 'No compatible USB device found')");
+                    return;
+                }
                 
                 // Check for permission
                 if (!usbManager.hasPermission(usbDevice)) {
-                    // In a real app, you'd request permission here. 
-                    // For now, we'll assume permission is granted or handled by system dialog
-                    evaluateJs("window.onNativeSerialStatus('error', 'USB Permission Required')");
+                    usbManager.requestPermission(usbDevice, permissionIntent);
+                    evaluateJs("window.onNativeSerialStatus('connecting', 'Requesting USB Permission...')");
                     return;
                 }
 
                 try {
-                    usbInterface = usbDevice.getInterface(0);
                     usbConnection = usbManager.openDevice(usbDevice);
                     if (usbConnection == null) {
                         evaluateJs("window.onNativeSerialStatus('error', 'Failed to open USB connection')");
+                        return;
+                    }
+
+                    // Find the correct interface (one with bulk endpoints)
+                    usbInterface = null;
+                    endpointIn = null;
+                    endpointOut = null;
+
+                    for (int i = 0; i < usbDevice.getInterfaceCount(); i++) {
+                        UsbInterface iface = usbDevice.getInterface(i);
+                        UsbEndpoint epIn = null;
+                        UsbEndpoint epOut = null;
+
+                        for (int j = 0; j < iface.getEndpointCount(); j++) {
+                            UsbEndpoint ep = iface.getEndpoint(j);
+                            if (ep.getType() == UsbConstants.USB_ENDPOINT_XFER_BULK) {
+                                if (ep.getDirection() == UsbConstants.USB_DIR_IN) epIn = ep;
+                                else epOut = ep;
+                            }
+                        }
+
+                        if (epIn != null && epOut != null) {
+                            usbInterface = iface;
+                            endpointIn = epIn;
+                            endpointOut = epOut;
+                            break;
+                        }
+                    }
+
+                    if (usbInterface == null) {
+                        evaluateJs("window.onNativeSerialStatus('error', 'No serial interface found on device')");
                         return;
                     }
 
@@ -309,24 +381,24 @@ public class MainActivity extends AppCompatActivity {
                         return;
                     }
 
-                    // Find endpoints
-                    for (int i = 0; i < usbInterface.getEndpointCount(); i++) {
-                        UsbEndpoint ep = usbInterface.getEndpoint(i);
-                        if (ep.getType() == UsbConstants.USB_ENDPOINT_XFER_BULK) {
-                            if (ep.getDirection() == UsbConstants.USB_DIR_IN) endpointIn = ep;
-                            else endpointOut = ep;
-                        }
-                    }
-
-                    if (endpointIn == null || endpointOut == null) {
-                        evaluateJs("window.onNativeSerialStatus('error', 'USB Endpoints not found')");
-                        return;
-                    }
+                    // Basic Serial Configuration (CDC ACM)
+                    byte[] lineCoding = new byte[] {
+                        (byte) (baudRate & 0xFF),
+                        (byte) ((baudRate >> 8) & 0xFF),
+                        (byte) ((baudRate >> 16) & 0xFF),
+                        (byte) ((baudRate >> 24) & 0xFF),
+                        0, // 1 stop bit
+                        0, // no parity
+                        8  // 8 data bits
+                    };
+                    usbConnection.controlTransfer(0x21, 0x20, 0, 0, lineCoding, lineCoding.length, 1000);
+                    // Set DTR and RTS to true (required by many ESP32 boards to start)
+                    usbConnection.controlTransfer(0x21, 0x22, 0x03, 0, null, 0, 1000);
 
                     isSerialConnected = true;
                     startSerialReadThread();
                     evaluateJs("window.onNativeSerialStatus('connected', '')");
-                    Log.d(TAG, "Serial Connected via Native Bridge");
+                    Log.d(TAG, "Serial Connected: " + usbDevice.getDeviceName() + " @ " + baudRate);
 
                 } catch (Exception e) {
                     evaluateJs("window.onNativeSerialStatus('error', '" + e.getMessage() + "')");
