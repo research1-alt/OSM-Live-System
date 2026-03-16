@@ -1,4 +1,3 @@
-
 package com.example.osmlive;
 
 import android.Manifest;
@@ -141,7 +140,7 @@ public class MainActivity extends AppCompatActivity {
         createNotificationChannel();
         checkAndRequestPermissions();
         setupWebView();
-        
+
         // Updated to current App URL
         webView.loadUrl("https://ais-dev-bg3wxoksngtqqwjyse4eot-127120545089.asia-southeast1.run.app");
         setupBackNavigation();
@@ -168,7 +167,7 @@ public class MainActivity extends AppCompatActivity {
         } else {
             perms = new String[]{Manifest.permission.ACCESS_FINE_LOCATION};
         }
-        
+
         List<String> needed = new ArrayList<>();
         for (String p : perms) {
             if (ContextCompat.checkSelfPermission(this, p) != PackageManager.PERMISSION_GRANTED) needed.add(p);
@@ -183,7 +182,7 @@ public class MainActivity extends AppCompatActivity {
         s.setDomStorageEnabled(true);
         s.setGeolocationEnabled(true);
         s.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
-        
+
         // Handle file downloads (Base64 data URLs from the web app)
         webView.setDownloadListener((url, userAgent, contentDisposition, mimetype, contentLength) -> {
             if (url.startsWith("data:")) {
@@ -191,20 +190,20 @@ public class MainActivity extends AppCompatActivity {
                     // 1. Extract base64 data
                     String base64Data = url.substring(url.indexOf(",") + 1);
                     byte[] fileBytes = android.util.Base64.decode(base64Data, android.util.Base64.DEFAULT);
-                    
+
                     // 2. Determine filename
                     String extension = mimetype.contains("csv") ? ".csv" : ".trc";
                     String fileName = "OSM_LOG_" + System.currentTimeMillis() + extension;
-                    
+
                     // 3. Save to Downloads folder
                     File path = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS);
                     File file = new File(path, fileName);
-                    
+
                     try (FileOutputStream os = new FileOutputStream(file)) {
                         os.write(fileBytes);
                         os.flush();
                     }
-                    
+
                     // 4. Notify user
                     runOnUiThread(() -> Toast.makeText(MainActivity.this, "Log Saved to Downloads: " + fileName, Toast.LENGTH_LONG).show());
                 } catch (Exception e) {
@@ -219,7 +218,7 @@ public class MainActivity extends AppCompatActivity {
         webView.setWebChromeClient(new WebChromeClient() {
             @Override
             public void onPermissionRequest(PermissionRequest r) { runOnUiThread(() -> r.grant(r.getResources())); }
-            
+
             @Override
             public void onGeolocationPermissionsShowPrompt(String origin, GeolocationPermissions.Callback callback) {
                 callback.invoke(origin, true, false);
@@ -258,10 +257,10 @@ public class MainActivity extends AppCompatActivity {
                 cleanupBluetooth();
                 isConnecting = false;
                 isConnected = false;
-                
+
                 // Immediately notify UI that we are starting the connection process
                 evaluateJs("window.onNativeBleStatus('connecting')");
-                
+
                 // Check if Location is enabled (Required for BLE on many Android versions)
                 LocationManager lm = (LocationManager) getSystemService(Context.LOCATION_SERVICE);
                 boolean gpsEnabled = false;
@@ -298,7 +297,7 @@ public class MainActivity extends AppCompatActivity {
                         BluetoothDevice device = bluetoothAdapter.getRemoteDevice(lastDeviceAddress);
                         if (device != null) {
                             connectToDevice(device);
-                            
+
                             // Set a timeout for fast reconnect, if it fails, start scanning
                             mainHandler.postDelayed(() -> {
                                 if (bluetoothGatt == null && !isScanning) {
@@ -338,7 +337,7 @@ public class MainActivity extends AppCompatActivity {
                     isScanning = true;
                     bluetoothLeScanner.startScan(filters, settings, scanCallback);
                     sendToJs("SCANNING: Hunting for OSM hardware (Filtered)...");
-                    
+
                     mainHandler.postDelayed(() -> {
                         if (isScanning && bluetoothGatt == null) {
                             stopCurrentScan();
@@ -356,7 +355,7 @@ public class MainActivity extends AppCompatActivity {
 
         private void startUnfilteredScan() {
             if (bluetoothLeScanner == null) return;
-            
+
             ScanSettings settings = new ScanSettings.Builder()
                     .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
                     .build();
@@ -366,7 +365,7 @@ public class MainActivity extends AppCompatActivity {
                     isScanning = true;
                     bluetoothLeScanner.startScan(null, settings, scanCallback);
                     sendToJs("SCANNING: Broad search active...");
-                    
+
                     mainHandler.postDelayed(() -> {
                         if (isScanning && bluetoothGatt == null) {
                             stopCurrentScan();
@@ -390,7 +389,7 @@ public class MainActivity extends AppCompatActivity {
             if (bluetoothGatt != null) {
                 BluetoothGattService service = bluetoothGatt.getService(UART_SERVICE_UUID);
                 BluetoothGattCharacteristic rxChar = null;
-                
+
                 if (service != null) {
                     rxChar = service.getCharacteristic(RX_CHAR_UUID);
                 } else {
@@ -446,10 +445,10 @@ public class MainActivity extends AppCompatActivity {
                 String name = device.getName();
                 String address = device.getAddress();
                 Log.d(TAG, "Found device: " + name + " [" + address + "]");
-                
+
                 // Log every found device to the JS debug log to help user identify their device
                 String deviceLabel = (name != null ? name : "Unnamed") + " (" + address + ")";
-                
+
                 if (!isConnecting && name != null && (name.toUpperCase().contains("OSM") || name.toUpperCase().contains("ESP32") || name.toUpperCase().contains("CAN") || name.toUpperCase().contains("MASTER"))) {
                     isConnecting = true;
                     sendToJs("MATCH_FOUND: " + name + ". Establishing dedicated link...");
@@ -465,9 +464,9 @@ public class MainActivity extends AppCompatActivity {
         @Override
         public void onScanFailed(int errorCode) {
             isScanning = false;
-            String msg = (errorCode == SCAN_FAILED_APPLICATION_REGISTRATION_FAILED) 
-                         ? "Code 2: Stack Full. Manual Reset Req." 
-                         : "Error Code " + errorCode;
+            String msg = (errorCode == SCAN_FAILED_APPLICATION_REGISTRATION_FAILED)
+                    ? "Code 2: Stack Full. Manual Reset Req."
+                    : "Error Code " + errorCode;
             sendToJs("SCAN_FAILED: " + msg);
             evaluateJs("window.onNativeBleStatus('error')");
         }
@@ -479,7 +478,7 @@ public class MainActivity extends AppCompatActivity {
                 sendToJs("LINK: Contacting hardware (" + device.getAddress() + ")...");
                 isConnecting = true;
                 isConnected = false;
-                
+
                 // Connection timeout guard
                 mainHandler.postDelayed(() -> {
                     if (isConnecting && !isConnected) {
@@ -493,13 +492,13 @@ public class MainActivity extends AppCompatActivity {
                 } else {
                     bluetoothGatt = device.connectGatt(this, false, gattCallback);
                 }
-                
+
                 if (bluetoothGatt == null) {
                     isConnecting = false;
                     sendToJs("ERROR: Failed to create GATT client.");
                     return;
                 }
-                
+
                 // Attempt to refresh cache
                 refreshDeviceCache(bluetoothGatt);
             }
@@ -525,14 +524,14 @@ public class MainActivity extends AppCompatActivity {
         @Override
         public void onConnectionStateChange(BluetoothGatt gatt, int status, int newState) {
             Log.d(TAG, "onConnectionStateChange: status=" + status + " newState=" + newState);
-            
+
             if (status != BluetoothGatt.GATT_SUCCESS) {
                 String errorMsg = "GATT_ERROR: " + decodeGattStatus(status);
-                
+
                 sendToJs(errorMsg + ". Resetting...");
                 isConnecting = false;
                 isConnected = false;
-                
+
                 if (ActivityCompat.checkSelfPermission(MainActivity.this, Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED) {
                     gatt.close();
                 }
@@ -547,11 +546,11 @@ public class MainActivity extends AppCompatActivity {
                 isConnecting = false;
                 isConnected = true;
                 sendToJs("LINK: Handshake initiated.");
-                
+
                 if (ActivityCompat.checkSelfPermission(MainActivity.this, Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED) {
                     // Request high priority for better stability during discovery
                     gatt.requestConnectionPriority(BluetoothGatt.CONNECTION_PRIORITY_HIGH);
-                    
+
                     // Delay MTU to allow internal stack preparation
                     mainHandler.postDelayed(() -> {
                         if (bluetoothGatt != null && ActivityCompat.checkSelfPermission(MainActivity.this, Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED) {
@@ -600,7 +599,7 @@ public class MainActivity extends AppCompatActivity {
                 sendToJs("LINK: Services Discovered.");
                 BluetoothGattService service = gatt.getService(UART_SERVICE_UUID);
                 BluetoothGattCharacteristic txChar = null;
-                
+
                 if (service != null) {
                     txChar = service.getCharacteristic(TX_CHAR_UUID);
                 } else {
@@ -661,7 +660,7 @@ public class MainActivity extends AppCompatActivity {
                 if (val != null) {
                     double arrivalTime = SystemClock.elapsedRealtimeNanos() / 1000000.0;
                     String data = new String(val, java.nio.charset.StandardCharsets.UTF_8);
-                    
+
                     synchronized (bleDataBuffer) {
                         if (isAtStartOfLine) {
                             // Send high-precision timestamp using US locale to ensure dot decimal separator
@@ -670,7 +669,7 @@ public class MainActivity extends AppCompatActivity {
                         bleDataBuffer.append(data);
                         isAtStartOfLine = data.endsWith("\n") || data.endsWith("\r");
                     }
-                    
+
                     long currentTime = SystemClock.elapsedRealtime();
                     if (currentTime - lastBleFlushTime >= BLE_FLUSH_INTERVAL_MS) {
                         flushBleDataToJs();
@@ -691,26 +690,26 @@ public class MainActivity extends AppCompatActivity {
             runOnUiThread(() -> {
                 if (webView != null) {
                     String escaped = dataToFlush.replace("\\", "\\\\")
-                                               .replace("'", "\\'")
-                                               .replace("\n", "\\n")
-                                               .replace("\r", "");
+                            .replace("'", "\\'")
+                            .replace("\n", "\\n")
+                            .replace("\r", "");
                     webView.evaluateJavascript("if(window.onNativeBleData){window.onNativeBleData('" + escaped + "');}", null);
                 }
             });
         }
     };
 
-    private void sendToJs(String msg) { 
+    private void sendToJs(String msg) {
         Log.d(TAG, "JS_LOG: " + msg);
-        evaluateJs("window.onNativeBleLog('" + msg.replace("'", "\\'") + "')"); 
+        evaluateJs("window.onNativeBleLog('" + msg.replace("'", "\\'") + "')");
     }
-    private void evaluateJs(String script) { 
-        runOnUiThread(() -> { 
+    private void evaluateJs(String script) {
+        runOnUiThread(() -> {
             if (webView != null) {
                 Log.d(TAG, "Evaluating JS: " + script);
-                webView.evaluateJavascript(script, null); 
+                webView.evaluateJavascript(script, null);
             }
-        }); 
+        });
     }
 
     private void setupBackNavigation() {
