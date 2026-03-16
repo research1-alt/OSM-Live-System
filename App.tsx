@@ -760,7 +760,7 @@ const App: React.FC = () => {
     // Check for Native Bridge First (Android App Context)
     if (window.NativeSerialBridge) {
       setBridgeStatus('connecting');
-      addDebugLog("SERIAL: Connecting via Native Android Bridge...");
+      addDebugLog(`SERIAL: Connecting via Native Android Bridge at ${baudRate} bps...`);
       window.NativeSerialBridge.connectSerial(baudRate);
       return;
     }
@@ -773,7 +773,7 @@ const App: React.FC = () => {
 
     try {
       setBridgeStatus('connecting');
-      addDebugLog("SERIAL: Requesting port selector...");
+      addDebugLog(`SERIAL: Requesting port selector at ${baudRate} bps...`);
       
       const port = await (navigator as any).serial.requestPort();
       await port.open({ baudRate: baudRate });
@@ -1301,6 +1301,8 @@ const App: React.FC = () => {
                   syncStatus={syncStatus}
                   onManualSync={handleManualSync}
                   onSetHardwareMode={setHardwareMode}
+                  baudRate={baudRate}
+                  onSetBaudRate={setBaudRate}
                 />
               </div>
             </div>
