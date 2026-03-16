@@ -351,7 +351,7 @@ const App: React.FC = () => {
         
         content += rows.join('\n') + '\n';
         const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-        await exportFile(content, `${isAuto ? 'AUTOSAVE_' : 'OSM_'}TRACE_${stamp}.trc`, '*/*');
+        await exportFile(content, `${isAuto ? 'AUTOSAVE_' : 'OSM_'}TRACE_${stamp}.trc`, 'application/octet-stream');
       } catch (e) { 
         console.error(e); 
       } finally { 

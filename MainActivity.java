@@ -191,9 +191,18 @@ public class MainActivity extends AppCompatActivity {
                     String base64Data = url.substring(url.indexOf(",") + 1);
                     byte[] fileBytes = android.util.Base64.decode(base64Data, android.util.Base64.DEFAULT);
 
-                    // 2. Determine filename
-                    String extension = mimetype.contains("csv") ? ".csv" : ".trc";
-                    String fileName = "OSM_LOG_" + System.currentTimeMillis() + extension;
+                    // 2. Determine filename - Try to extract from contentDisposition or use a smart default
+                    String fileName = null;
+                    if (contentDisposition != null && contentDisposition.contains("filename=")) {
+                        try {
+                            fileName = contentDisposition.substring(contentDisposition.indexOf("filename=") + 9).split(";")[0].replace("\"", "");
+                        } catch (Exception ignored) {}
+                    }
+
+                    if (fileName == null || fileName.isEmpty()) {
+                        String extension = mimetype.contains("csv") ? ".csv" : ".trc";
+                        fileName = "OSM_LOG_" + System.currentTimeMillis() + extension;
+                    }
 
                     // 3. Save to Downloads folder
                     File path = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS);
@@ -205,7 +214,8 @@ public class MainActivity extends AppCompatActivity {
                     }
 
                     // 4. Notify user
-                    runOnUiThread(() -> Toast.makeText(MainActivity.this, "Log Saved to Downloads: " + fileName, Toast.LENGTH_LONG).show());
+                    final String finalFileName = fileName;
+                    runOnUiThread(() -> Toast.makeText(MainActivity.this, "Log Saved to Downloads: " + finalFileName, Toast.LENGTH_LONG).show());
                 } catch (Exception e) {
                     runOnUiThread(() -> Toast.makeText(MainActivity.this, "Download Failed: " + e.getMessage(), Toast.LENGTH_LONG).show());
                 }
@@ -762,10 +772,11 @@ public class MainActivity extends AppCompatActivity {
         @JavascriptInterface
         public void saveFile(String data, String fileName) {
             try {
+                String mimeType = fileName.endsWith(".csv") ? "text/csv" : "application/octet-stream";
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                     ContentValues v = new ContentValues();
                     v.put(MediaStore.MediaColumns.DISPLAY_NAME, fileName);
-                    v.put(MediaStore.MediaColumns.MIME_TYPE, "application/octet-stream");
+                    v.put(MediaStore.MediaColumns.MIME_TYPE, mimeType);
                     v.put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS);
                     Uri uri = getContentResolver().insert(Uri.parse("content://media/external/downloads"), v);
                     if (uri != null) {
@@ -790,7 +801,15 @@ public class MainActivity extends AppCompatActivity {
                 pendingFileData = data;
                 Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT);
                 intent.addCategory(Intent.CATEGORY_OPENABLE);
-                intent.setType(mimeType);
+                
+                // Fix for .trc.csv issue: Be more specific about MIME type if it's a wildcard
+                String finalMimeType = mimeType;
+                if ("*/*".equals(mimeType)) {
+                    if (fileName.endsWith(".trc")) finalMimeType = "application/octet-stream";
+                    else if (fileName.endsWith(".csv")) finalMimeType = "text/csv";
+                }
+                
+                intent.setType(finalMimeType);
                 intent.putExtra(Intent.EXTRA_TITLE, fileName);
                 createFileLauncher.launch(intent);
             });
