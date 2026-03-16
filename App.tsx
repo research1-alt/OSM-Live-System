@@ -563,78 +563,73 @@ const App: React.FC = () => {
       (window as any).onNativeBleData = (data: string) => {
         const arrivalTime = performance.now();
         
-        // DIAGNOSTIC: Log the raw chunk size from Native
-        if (allFramesRef.current.length % 100 === 0) {
-          addDebugLog(`NATIVE_RAW: Received chunk of ${data.length} chars. Buffer size: ${bleBufferRef.current.length}`);
-        }
-
         bleBufferRef.current += data;
         
         if (bleBufferRef.current.includes('\n')) {
           const lines = bleBufferRef.current.split('\n');
-          // Keep the last partial line in the buffer
           bleBufferRef.current = lines.pop() || "";
           
           for (const line of lines) {
             const trimmed = line.trim();
             if (!trimmed) continue;
             
-            // DIAGNOSTIC: Log full line length
-            if (allFramesRef.current.length % 100 === 0) {
-              addDebugLog(`NATIVE_LINE: Full line reassembled: ${trimmed.length} chars. Content: ${trimmed.substring(0, 20)}...`);
-            }
+            let frameHwTimestamp = arrivalTime;
+            let content = trimmed;
 
-            if (trimmed.startsWith('TS:')) {
-              const javaTs = parseFloat(trimmed.split(':')[1]);
+            // Handle high-precision timestamp from Android Bridge (|T:timestamp)
+            if (content.includes('|T:')) {
+              const parts = content.split('|T:');
+              content = parts[0].trim();
+              const javaTs = parseFloat(parts[1]);
               if (!isNaN(javaTs)) {
                 if (javaTimeOffsetRef.current === null) {
                   javaTimeOffsetRef.current = performance.now() - javaTs;
                 }
-                currentBatchTimestampRef.current = javaTs + javaTimeOffsetRef.current;
+                frameHwTimestamp = javaTs + javaTimeOffsetRef.current;
               }
-              continue;
             }
 
-            if (trimmed.startsWith('SYS:')) {
-              handleNewFrame(trimmed, 0, [], arrivalTime);
+            if (content.startsWith('SYS:')) {
+              handleNewFrame(content, 0, [], frameHwTimestamp);
               continue;
             }
             
-            // NEW ROBUST PARSER: Substring-based to avoid issues with extra '#' delimiters
-            const firstHash = trimmed.indexOf('#');
-            const secondHash = trimmed.indexOf('#', firstHash + 1);
+            // Standard CAN frame parser: ID#DLC#DATA
+            const firstHash = content.indexOf('#');
+            const secondHash = content.indexOf('#', firstHash + 1);
             
             if (firstHash !== -1 && secondHash !== -1) {
-              const id = trimmed.substring(0, firstHash);
-              const dlcStr = trimmed.substring(firstHash + 1, secondHash);
+              const id = content.substring(0, firstHash);
+              const dlcStr = content.substring(firstHash + 1, secondHash);
               const dlc = parseInt(dlcStr) || 0;
-              let rawDataStr = trimmed.substring(secondHash + 1);
+              let rawDataStr = content.substring(secondHash + 1);
               
-              let frameHwTimestamp = currentBatchTimestampRef.current;
-              
-              const tsMatch = rawDataStr.match(/TS:(\d+\.?\d*)/i);
-              if (tsMatch) {
-                const tsVal = parseFloat(tsMatch[1]);
-                if (!isNaN(tsVal)) frameHwTimestamp = tsVal;
-                rawDataStr = rawDataStr.replace(/TS:\d+\.?\d*/i, ' ');
-              }
-
-              // STRICT HEX PARSER: Extract all 2-digit hex pairs
-              // This prevents IDs or other fields from being merged into data bytes
-              const allHexPairs = rawDataStr.match(/[0-9A-Fa-f]{2}/g) || [];
-              const dataParts = allHexPairs.slice(0, dlc);
-              
-              // Padding if necessary
-              while (dataParts.length < dlc && dataParts.length < 8) {
-                dataParts.push("00");
-              }
-
+              // Check for ESP32-side hardware timestamp (trailing #timestamp)
               const remainingParts = rawDataStr.split('#');
               if (remainingParts.length >= 2) {
                 const esp32Micros = parseInt(remainingParts[1]);
                 if (!isNaN(esp32Micros)) {
-                  frameHwTimestamp = esp32Micros / 1000.0;
+                  // If we have ESP32 micros, it's the most accurate
+                  // We need to align it to performance.now()
+                  // For now, we'll treat it as a relative offset if it's small, 
+                  // or absolute if it's large.
+                  // But usually, the |T: from Android is enough if ESP32 doesn't send it.
+                  // If ESP32 sends it, we prefer it.
+                  const esp32Ms = esp32Micros / 1000.0;
+                  if (javaTimeOffsetRef.current === null) {
+                    javaTimeOffsetRef.current = performance.now() - esp32Ms;
+                  }
+                  frameHwTimestamp = esp32Ms + javaTimeOffsetRef.current;
                 }
+                rawDataStr = remainingParts[0];
+              }
+
+              // Extract hex pairs strictly
+              const allHexPairs = rawDataStr.match(/[0-9A-Fa-f]{2}/g) || [];
+              const dataParts = allHexPairs.slice(0, dlc);
+              
+              while (dataParts.length < dlc && dataParts.length < 8) {
+                dataParts.push("00");
               }
               
               handleNewFrame(id, dlc, dataParts, frameHwTimestamp);
