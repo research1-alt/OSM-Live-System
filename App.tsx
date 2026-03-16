@@ -482,7 +482,7 @@ const App: React.FC = () => {
       
       let baseTs = hwTimestamp + hwTimeOffsetRef.current;
       
-      // DRIFT & WRAP GUARD
+      // DRIFT & WRAP GUARD (Handle 32-bit micros wrap or significant clock drift)
       if (Math.abs(baseTs - appNow) > 2000) {
         hwTimeOffsetRef.current = appNow - hwTimestamp;
         baseTs = appNow;
@@ -490,10 +490,10 @@ const App: React.FC = () => {
 
       // SPREAD IDENTICAL TIMESTAMPS:
       // If multiple frames arrive in the same batch (same hwTimestamp),
-      // spread them by 0.1ms to maintain order and prevent 0ms delta.
+      // spread them by 0.05ms to maintain order and prevent 0ms delta.
       const lastTs = lastArrivalTsRef.current;
       if (baseTs <= lastTs) {
-        alignedTs = lastTs + 0.1;
+        alignedTs = lastTs + 0.05;
       } else {
         alignedTs = baseTs;
       }
@@ -755,9 +755,19 @@ const App: React.FC = () => {
             }
             
             const remainingParts = rawDataStr.split('#');
-            const hwTs = remainingParts.length >= 2 ? parseFloat(remainingParts[1]) : arrivalTime;
+            let hwTs = arrivalTime;
             
-            handleNewFrame(id, dlc, dataParts, isNaN(hwTs) ? arrivalTime : hwTs);
+            if (remainingParts.length >= 2) {
+              const val = parseFloat(remainingParts[1]);
+              if (!isNaN(val)) {
+                // If the value is from ESP32 micros(), convert to ms
+                // Heuristic: micros() is usually much larger than performance.now() 
+                // or we just assume it's us if it comes from the hardware 4th field.
+                hwTs = val / 1000;
+              }
+            }
+            
+            handleNewFrame(id, dlc, dataParts, hwTs);
           }
         }
       }
