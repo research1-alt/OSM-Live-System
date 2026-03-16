@@ -1062,7 +1062,7 @@ const App: React.FC = () => {
                         return prev;
                       });
                       connectionTimeoutRef.current = null;
-                    }, 15000);
+                    }, 10000); // Reduced to 10s
 
                     // Background Activity: Pre-sync session to cloud immediately
                     if (user && sessionId) {
