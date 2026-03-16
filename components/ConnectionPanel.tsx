@@ -18,6 +18,8 @@ interface ConnectionPanelProps {
   deviceHistory?: string[];
   syncStatus?: 'idle' | 'syncing' | 'success' | 'error';
   onManualSync?: () => void;
+  baudRate?: number;
+  onSetBaudRate?: (rate: number) => void;
 }
 
 const ConnectionPanel: React.FC<ConnectionPanelProps> = ({ 
@@ -33,7 +35,9 @@ const ConnectionPanel: React.FC<ConnectionPanelProps> = ({
   hardwareId = null,
   deviceHistory = [],
   syncStatus = 'idle',
-  onManualSync
+  onManualSync,
+  baudRate = 115200,
+  onSetBaudRate
 }) => {
   const [isNative, setIsNative] = useState(false);
   const [btSupported, setBtSupported] = useState(true);
@@ -197,9 +201,37 @@ const ConnectionPanel: React.FC<ConnectionPanelProps> = ({
 
                   <div className="flex gap-3">
                     <div className="text-[9px] font-orbitron font-black text-indigo-600 bg-white w-5 h-5 flex items-center justify-center rounded-lg shadow-sm shrink-0">2</div>
-                    <p className="text-[10px] text-slate-600 font-medium leading-snug">
-                      <b>Serial Troubleshooting:</b> Ensure you are using a <b>USB OTG adapter</b> on Android. Chrome for Android is required. Check if the cable is data-capable.
-                    </p>
+                    <div className="space-y-2">
+                      <p className="text-[10px] text-slate-600 font-medium leading-snug">
+                        <b>Serial Connection Guide:</b>
+                      </p>
+                      <ul className="text-[9px] text-slate-500 space-y-1 list-disc pl-3">
+                        <li>Use a <b>USB OTG Adapter</b> on Android.</li>
+                        <li>Ensure the cable is a <b>Data Cable</b> (not just charging).</li>
+                        <li><b>Android App:</b> Grant USB permission when prompted.</li>
+                        <li><b>Chrome:</b> Enable <code>#enable-experimental-web-platform-features</code> in <code>chrome://flags</code>.</li>
+                      </ul>
+                      
+                      <div className="pt-2 border-t border-slate-100">
+                        <label className="text-[8px] font-orbitron font-black text-slate-400 uppercase tracking-widest mb-1 block">
+                          Baud_Rate_Config
+                        </label>
+                        <select 
+                          value={baudRate}
+                          onChange={(e) => onSetBaudRate?.(parseInt(e.target.value))}
+                          className="w-full bg-white border border-slate-200 rounded-lg py-1 px-2 text-[10px] font-mono font-bold text-slate-600 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                        >
+                          <option value={9600}>9600 bps</option>
+                          <option value={19200}>19200 bps</option>
+                          <option value={38400}>38400 bps</option>
+                          <option value={57600}>57600 bps</option>
+                          <option value={115200}>115200 bps</option>
+                          <option value={230400}>230400 bps</option>
+                          <option value={460800}>460800 bps</option>
+                          <option value={921600}>921600 bps</option>
+                        </select>
+                      </div>
+                    </div>
                   </div>
                   
                   {isNative && (
