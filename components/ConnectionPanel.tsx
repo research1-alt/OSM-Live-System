@@ -6,8 +6,8 @@ import { ConnectionStatus, HardwareStatus } from '../types.ts';
 interface ConnectionPanelProps {
   status: ConnectionStatus;
   hwStatus?: HardwareStatus;
-  hardwareMode: 'esp32-bt';
-  onSetHardwareMode?: (mode: 'esp32-bt') => void;
+  hardwareMode: 'esp32-bt' | 'esp32-serial';
+  onSetHardwareMode?: (mode: 'esp32-bt' | 'esp32-serial') => void;
   onConnect: () => void;
   onDisconnect: () => void;
   onRequestHardwareId?: () => void;
@@ -37,12 +37,14 @@ const ConnectionPanel: React.FC<ConnectionPanelProps> = ({
 }) => {
   const [isNative, setIsNative] = useState(false);
   const [btSupported, setBtSupported] = useState(true);
+  const [serialSupported, setSerialSupported] = useState(true);
   const [showTroubleshooting, setShowTroubleshooting] = useState(false);
   const isDesktop = useMemo(() => !isNative && /Windows|Macintosh|Linux/.test(navigator.userAgent), [isNative]);
 
   useEffect(() => {
     setIsNative(!!(window as any).NativeBleBridge);
     setBtSupported(!!(navigator as any).bluetooth || !!(window as any).NativeBleBridge);
+    setSerialSupported(!!(navigator as any).serial || !!(window as any).NativeSerialBridge);
   }, []);
 
   const hasGattError = useMemo(() => debugLog.some(log => log.includes('GATT') || log.includes('BLE_FAULT')), [debugLog]);
@@ -95,12 +97,20 @@ const ConnectionPanel: React.FC<ConnectionPanelProps> = ({
               </div>
             </div>
 
-            <div className="flex justify-center mb-6 md:mb-8">
-              <div 
-                className={`flex flex-col items-center gap-3 p-4 md:p-5 rounded-[24px] border transition-all w-full max-w-[200px] ${!btSupported ? 'opacity-40 cursor-not-allowed grayscale' : 'bg-indigo-600 border-indigo-700 text-white shadow-xl'}`}
+            <div className="flex justify-center gap-4 mb-6 md:mb-8">
+              <button 
+                onClick={() => onSetHardwareMode?.('esp32-bt')}
+                className={`flex flex-col items-center gap-3 p-4 md:p-5 rounded-[24px] border transition-all w-full max-w-[160px] ${!btSupported ? 'opacity-40 cursor-not-allowed grayscale' : hardwareMode === 'esp32-bt' ? 'bg-indigo-600 border-indigo-700 text-white shadow-xl' : 'bg-slate-50 border-slate-100 text-slate-400 hover:bg-slate-100'}`}
               >
                 <Bluetooth size={20}/><span className="text-[8px] font-orbitron font-black uppercase">{btSupported ? 'Bluetooth' : 'BT_NOT_SUPPORTED'}</span>
-              </div>
+              </button>
+
+              <button 
+                onClick={() => onSetHardwareMode?.('esp32-serial')}
+                className={`flex flex-col items-center gap-3 p-4 md:p-5 rounded-[24px] border transition-all w-full max-w-[160px] ${!serialSupported ? 'opacity-40 cursor-not-allowed grayscale' : hardwareMode === 'esp32-serial' ? 'bg-indigo-600 border-indigo-700 text-white shadow-xl' : 'bg-slate-50 border-slate-100 text-slate-400 hover:bg-slate-100'}`}
+              >
+                <Cable size={20}/><span className="text-[8px] font-orbitron font-black uppercase">{serialSupported ? 'Serial Cable' : 'SERIAL_NOT_SUPPORTED'}</span>
+              </button>
             </div>
 
             <div className={`mb-6 p-5 md:p-6 rounded-[32px] border transition-all duration-500 shadow-inner max-w-[90%] mx-auto ${currentStatus.color}`}>
@@ -182,6 +192,13 @@ const ConnectionPanel: React.FC<ConnectionPanelProps> = ({
                     <div className="text-[9px] font-orbitron font-black text-indigo-600 bg-white w-5 h-5 flex items-center justify-center rounded-lg shadow-sm shrink-0">1</div>
                     <p className="text-[10px] text-slate-600 font-medium leading-snug">
                       <b>Bluetooth Troubleshooting:</b> If device is invisible, go to System Settings and <b>Unpair/Forget</b> it. Then restart the ESP32.
+                    </p>
+                  </div>
+
+                  <div className="flex gap-3">
+                    <div className="text-[9px] font-orbitron font-black text-indigo-600 bg-white w-5 h-5 flex items-center justify-center rounded-lg shadow-sm shrink-0">2</div>
+                    <p className="text-[10px] text-slate-600 font-medium leading-snug">
+                      <b>Serial Troubleshooting:</b> Ensure you are using a <b>USB OTG adapter</b> on Android. Chrome for Android is required. Check if the cable is data-capable.
                     </p>
                   </div>
                   

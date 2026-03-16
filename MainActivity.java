@@ -57,6 +57,17 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
+import android.hardware.usb.UsbConstants;
+import android.hardware.usb.UsbDevice;
+import android.hardware.usb.UsbDeviceConnection;
+import android.hardware.usb.UsbEndpoint;
+import android.hardware.usb.UsbInterface;
+import android.hardware.usb.UsbManager;
+import android.hardware.usb.UsbRequest;
+import java.nio.ByteBuffer;
+import java.util.HashMap;
+import java.util.Iterator;
+
 public class MainActivity extends AppCompatActivity {
 
     private WebView webView;
@@ -84,6 +95,7 @@ public class MainActivity extends AppCompatActivity {
 
     // Data buffering for high-speed CAN
     private final StringBuilder bleDataBuffer = new StringBuilder();
+    private final StringBuilder lineBuffer = new StringBuilder();
     private long lastBleFlushTime = 0;
     private static final int BLE_FLUSH_INTERVAL_MS = 8; // 125Hz flush rate for higher resolution
 
@@ -92,6 +104,16 @@ public class MainActivity extends AppCompatActivity {
 
     // Temporary storage for file data during picker transition
     private String pendingFileData = "";
+
+    // USB Serial Variables
+    private UsbManager usbManager;
+    private UsbDevice usbDevice;
+    private UsbDeviceConnection usbConnection;
+    private UsbInterface usbInterface;
+    private UsbEndpoint endpointIn;
+    private UsbEndpoint endpointOut;
+    private boolean isSerialConnected = false;
+    private Thread serialReadThread;
 
     private final ActivityResultLauncher<Intent> enableBtLauncher = registerForActivityResult(
             new ActivityResultContracts.StartActivityForResult(),
@@ -223,6 +245,7 @@ public class MainActivity extends AppCompatActivity {
         });
 
         webView.addJavascriptInterface(new NativeBleBridge(), "NativeBleBridge");
+        webView.addJavascriptInterface(new NativeSerialBridge(), "NativeSerialBridge");
         webView.addJavascriptInterface(new WebAppInterface(), "AndroidInterface");
         webView.setWebViewClient(new WebViewClient());
         webView.setWebChromeClient(new WebChromeClient() {
@@ -248,6 +271,113 @@ public class MainActivity extends AppCompatActivity {
         } catch (Exception e) {
             sendToJs("FILE_WRITE_ERROR: " + e.getMessage());
         }
+    }
+
+    public class NativeSerialBridge {
+        @JavascriptInterface
+        public void connectSerial(int baudRate) {
+            runOnUiThread(() -> {
+                usbManager = (UsbManager) getSystemService(Context.USB_SERVICE);
+                HashMap<String, UsbDevice> deviceList = usbManager.getDeviceList();
+                Iterator<UsbDevice> deviceIterator = deviceList.values().iterator();
+
+                if (!deviceIterator.hasNext()) {
+                    evaluateJs("window.onNativeSerialStatus('error', 'No USB devices found')");
+                    return;
+                }
+
+                usbDevice = deviceIterator.next(); // Just take the first one for now
+                
+                // Check for permission
+                if (!usbManager.hasPermission(usbDevice)) {
+                    // In a real app, you'd request permission here. 
+                    // For now, we'll assume permission is granted or handled by system dialog
+                    evaluateJs("window.onNativeSerialStatus('error', 'USB Permission Required')");
+                    return;
+                }
+
+                try {
+                    usbInterface = usbDevice.getInterface(0);
+                    usbConnection = usbManager.openDevice(usbDevice);
+                    if (usbConnection == null) {
+                        evaluateJs("window.onNativeSerialStatus('error', 'Failed to open USB connection')");
+                        return;
+                    }
+
+                    if (!usbConnection.claimInterface(usbInterface, true)) {
+                        evaluateJs("window.onNativeSerialStatus('error', 'Failed to claim USB interface')");
+                        return;
+                    }
+
+                    // Find endpoints
+                    for (int i = 0; i < usbInterface.getEndpointCount(); i++) {
+                        UsbEndpoint ep = usbInterface.getEndpoint(i);
+                        if (ep.getType() == UsbConstants.USB_ENDPOINT_XFER_BULK) {
+                            if (ep.getDirection() == UsbConstants.USB_DIR_IN) endpointIn = ep;
+                            else endpointOut = ep;
+                        }
+                    }
+
+                    if (endpointIn == null || endpointOut == null) {
+                        evaluateJs("window.onNativeSerialStatus('error', 'USB Endpoints not found')");
+                        return;
+                    }
+
+                    isSerialConnected = true;
+                    startSerialReadThread();
+                    evaluateJs("window.onNativeSerialStatus('connected', '')");
+                    Log.d(TAG, "Serial Connected via Native Bridge");
+
+                } catch (Exception e) {
+                    evaluateJs("window.onNativeSerialStatus('error', '" + e.getMessage() + "')");
+                }
+            });
+        }
+
+        @JavascriptInterface
+        public void disconnectSerial() {
+            runOnUiThread(() -> {
+                cleanupSerial();
+                evaluateJs("window.onNativeSerialStatus('disconnected', '')");
+            });
+        }
+
+        @JavascriptInterface
+        public void sendSerialData(String data) {
+            if (isSerialConnected && usbConnection != null && endpointOut != null) {
+                byte[] bytes = data.getBytes();
+                usbConnection.bulkTransfer(endpointOut, bytes, bytes.length, 1000);
+            }
+        }
+    }
+
+    private void startSerialReadThread() {
+        serialReadThread = new Thread(() -> {
+            byte[] buffer = new byte[1024];
+            while (isSerialConnected) {
+                int bytesRead = usbConnection.bulkTransfer(endpointIn, buffer, buffer.length, 1000);
+                if (bytesRead > 0) {
+                    String data = new String(buffer, 0, bytesRead);
+                    runOnUiThread(() -> evaluateJs("window.onNativeSerialData('" + data.replace("'", "\\'") + "')"));
+                }
+            }
+        });
+        serialReadThread.start();
+    }
+
+    private void cleanupSerial() {
+        isSerialConnected = false;
+        if (serialReadThread != null) {
+            try { serialReadThread.join(500); } catch (Exception ignored) {}
+        }
+        if (usbConnection != null) {
+            if (usbInterface != null) usbConnection.releaseInterface(usbInterface);
+            usbConnection.close();
+        }
+        usbConnection = null;
+        usbInterface = null;
+        endpointIn = null;
+        endpointOut = null;
     }
 
     public class NativeBleBridge {
@@ -528,8 +658,6 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    private boolean isAtStartOfLine = true;
-
     private final BluetoothGattCallback gattCallback = new BluetoothGattCallback() {
         @Override
         public void onConnectionStateChange(BluetoothGatt gatt, int status, int newState) {
@@ -672,12 +800,22 @@ public class MainActivity extends AppCompatActivity {
                     String data = new String(val, java.nio.charset.StandardCharsets.UTF_8);
 
                     synchronized (bleDataBuffer) {
-                        if (isAtStartOfLine) {
-                            // Send high-precision timestamp using US locale to ensure dot decimal separator
-                            bleDataBuffer.append("TS:").append(String.format(java.util.Locale.US, "%.3f", arrivalTime)).append("\n");
+                        for (int i = 0; i < data.length(); i++) {
+                            char c = data.charAt(i);
+                            if (c == '\n' || c == '\r') {
+                                if (lineBuffer.length() > 0) {
+                                    String line = lineBuffer.toString().trim();
+                                    if (!line.isEmpty()) {
+                                        // Tag every single line with its exact arrival time
+                                        // Format: ORIGINAL_LINE|T:TIMESTAMP
+                                        bleDataBuffer.append(line).append("|T:").append(String.format(java.util.Locale.US, "%.3f", arrivalTime)).append("\n");
+                                    }
+                                    lineBuffer.setLength(0);
+                                }
+                            } else {
+                                lineBuffer.append(c);
+                            }
                         }
-                        bleDataBuffer.append(data);
-                        isAtStartOfLine = data.endsWith("\n") || data.endsWith("\r");
                     }
 
                     long currentTime = SystemClock.elapsedRealtime();

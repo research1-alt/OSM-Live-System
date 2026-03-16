@@ -32,6 +32,18 @@ const OPTIONAL_SERVICES = [
   "0000fefb-0000-1000-8000-00805f9b34fb"  // Telit
 ];
 
+declare global {
+  interface Window {
+    NativeSerialBridge?: {
+      connectSerial: (baudRate: number) => void;
+      disconnectSerial: () => void;
+      sendSerialData: (data: string) => void;
+    };
+    onNativeSerialData?: (data: string) => void;
+    onNativeSerialStatus?: (status: string, error: string) => void;
+  }
+}
+
 const App: React.FC = () => {
   const [user, setUser] = useState<User | null>(() => {
     const savedUser = localStorage.getItem('osm_currentUser');
@@ -43,7 +55,7 @@ const App: React.FC = () => {
   // Navigation
   const [view, setView] = useState<'home' | 'select' | 'live'>('home');
   
-  const [hardwareMode, setHardwareMode] = useState<'esp32-bt'>('esp32-bt');
+  const [hardwareMode, setHardwareMode] = useState<'esp32-bt' | 'esp32-serial'>('esp32-bt');
   const [isSimulated, setIsSimulated] = useState(false);
   const simulationIntervalRef = useRef<any>(null);
   
@@ -186,6 +198,13 @@ const App: React.FC = () => {
           await bleRxCharacteristicRef.current.writeValue(encoder.encode(payload + "\n"));
         } else if ((window as any).NativeBleBridge) {
           (window as any).NativeBleBridge.sendData(payload + "\n");
+        }
+      } else if (hardwareMode === 'esp32-serial') {
+        if (window.NativeSerialBridge) {
+          window.NativeSerialBridge.sendSerialData(payload + "\n");
+        } else if (serialWriterRef.current) {
+          const encoder = new TextEncoder();
+          await serialWriterRef.current.write(encoder.encode(payload + "\n"));
         }
       }
     } catch (e: any) {
@@ -673,6 +692,169 @@ const App: React.FC = () => {
     };
   }, [handleNewFrame, addDebugLog]);
 
+  // Native Serial Bridge Callbacks
+  useEffect(() => {
+    let serialBuffer = "";
+    
+    window.onNativeSerialData = (data: string) => {
+      serialBuffer += data;
+      const lines = serialBuffer.split(/\r?\n/);
+      serialBuffer = lines.pop() || "";
+      
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+        
+        if (trimmed.startsWith('SYS:')) {
+          handleNewFrame(trimmed, 0, [], performance.now());
+        } else {
+          const firstHash = trimmed.indexOf('#');
+          const secondHash = trimmed.indexOf('#', firstHash + 1);
+          
+          if (firstHash !== -1 && secondHash !== -1) {
+            const id = trimmed.substring(0, firstHash);
+            const dlcStr = trimmed.substring(firstHash + 1, secondHash);
+            const dlc = parseInt(dlcStr) || 0;
+            const rawDataStr = trimmed.substring(secondHash + 1);
+            
+            const allHexPairs = rawDataStr.match(/[0-9A-Fa-f]{2}/g) || [];
+            const dataParts = allHexPairs.slice(0, dlc);
+            
+            while (dataParts.length < dlc && dataParts.length < 8) {
+              dataParts.push("00");
+            }
+            
+            const remainingParts = rawDataStr.split('#');
+            const hwTs = remainingParts.length >= 2 ? parseFloat(remainingParts[1]) : performance.now();
+            
+            handleNewFrame(id, dlc, dataParts, isNaN(hwTs) ? performance.now() : hwTs);
+          }
+        }
+      }
+    };
+
+    window.onNativeSerialStatus = (status: string, error: string) => {
+      if (status === 'connected') {
+        setBridgeStatus('connected');
+        setHwStatus('active');
+        setHardwareId('NATIVE-SERIAL-LINK');
+        addDebugLog("SERIAL: Native Bridge Connected.");
+      } else if (status === 'error') {
+        setBridgeStatus('error');
+        addDebugLog(`SERIAL_NATIVE_ERROR: ${error}`);
+        setTimeout(() => setBridgeStatus('disconnected'), 3000);
+      } else if (status === 'disconnected') {
+        setBridgeStatus('disconnected');
+        setHwStatus('offline');
+        addDebugLog("SERIAL: Native Bridge Disconnected.");
+      }
+    };
+
+    return () => {
+      delete window.onNativeSerialData;
+      delete window.onNativeSerialStatus;
+    };
+  }, [handleNewFrame, addDebugLog]);
+
+  const connectWebSerial = async () => {
+    // Check for Native Bridge First (Android App Context)
+    if (window.NativeSerialBridge) {
+      setBridgeStatus('connecting');
+      addDebugLog("SERIAL: Connecting via Native Android Bridge...");
+      window.NativeSerialBridge.connectSerial(baudRate);
+      return;
+    }
+
+    if (!('serial' in navigator)) {
+      setBridgeStatus('error');
+      addDebugLog("ERROR: Web Serial not supported in this browser.");
+      return;
+    }
+
+    try {
+      setBridgeStatus('connecting');
+      addDebugLog("SERIAL: Requesting port selector...");
+      
+      const port = await (navigator as any).serial.requestPort();
+      await port.open({ baudRate: baudRate });
+      serialPortRef.current = port;
+      
+      addDebugLog("SERIAL: Port opened. Starting reader...");
+      
+      setBridgeStatus('connected');
+      setHwStatus('active');
+      setHardwareId('USB-SERIAL-LINK');
+      sessionStartTimeRef.current = performance.now();
+      
+      keepReadingRef.current = true;
+      
+      const encoder = new TextEncoder();
+      serialWriterRef.current = port.writable.getWriter();
+      
+      // Send handshake
+      await serialWriterRef.current.write(encoder.encode("ID?\n"));
+      
+      const reader = port.readable.getReader();
+      serialReaderRef.current = reader;
+      
+      let buffer = "";
+      while (keepReadingRef.current) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        
+        const chunk = new TextDecoder().decode(value);
+        buffer += chunk;
+        
+        const lines = buffer.split(/\r?\n/);
+        buffer = lines.pop() || "";
+        
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed) continue;
+          
+          if (trimmed.startsWith('SYS:')) {
+            handleNewFrame(trimmed, 0, [], performance.now());
+          } else {
+            const firstHash = trimmed.indexOf('#');
+            const secondHash = trimmed.indexOf('#', firstHash + 1);
+            
+            if (firstHash !== -1 && secondHash !== -1) {
+              const id = trimmed.substring(0, firstHash);
+              const dlcStr = trimmed.substring(firstHash + 1, secondHash);
+              const dlc = parseInt(dlcStr) || 0;
+              const rawDataStr = trimmed.substring(secondHash + 1);
+              
+              const allHexPairs = rawDataStr.match(/[0-9A-Fa-f]{2}/g) || [];
+              const dataParts = allHexPairs.slice(0, dlc);
+              
+              while (dataParts.length < dlc && dataParts.length < 8) {
+                dataParts.push("00");
+              }
+              
+              const remainingParts = rawDataStr.split('#');
+              const hwTs = remainingParts.length >= 2 ? parseFloat(remainingParts[1]) : performance.now();
+              
+              handleNewFrame(id, dlc, dataParts, isNaN(hwTs) ? performance.now() : hwTs);
+            }
+          }
+        }
+      }
+    } catch (err: any) {
+      addDebugLog(`SERIAL_ERROR: ${err.message}`);
+      setBridgeStatus('error');
+      setTimeout(() => setBridgeStatus('disconnected'), 3000);
+    } finally {
+      if (serialReaderRef.current) {
+        try { serialReaderRef.current.releaseLock(); } catch(e){}
+        serialReaderRef.current = null;
+      }
+      if (serialWriterRef.current) {
+        try { serialWriterRef.current.releaseLock(); } catch(e){}
+        serialWriterRef.current = null;
+      }
+    }
+  };
+
   const connectWebBluetooth = async () => {
     if (!(navigator as any).bluetooth) { 
       setBridgeStatus('error'); 
@@ -1075,25 +1257,34 @@ const App: React.FC = () => {
                       authService.syncSessionToCloud(user.email, user.userName, sessionId).catch(() => {});
                     }
 
-                    if ((window as any).NativeBleBridge) {
-                      addDebugLog("NATIVE_BLE: Triggering startBleLink...");
-                      setBridgeStatus('connecting'); 
-                      // Use requestAnimationFrame to ensure UI updates before heavy native call
-                      requestAnimationFrame(() => {
-                        try {
-                          (window as any).NativeBleBridge.startBleLink();
-                        } catch (err) {
-                          addDebugLog(`ERROR: Native bridge call failed: ${err}`);
-                          setBridgeStatus('error');
+                    if (hardwareMode === 'esp32-bt') {
+                      if ((window as any).NativeBleBridge) {
+                        addDebugLog("NATIVE_BLE: Triggering startBleLink...");
+                        setBridgeStatus('connecting'); 
+                        // Use requestAnimationFrame to ensure UI updates before heavy native call
+                        requestAnimationFrame(() => {
+                          try {
+                            (window as any).NativeBleBridge.startBleLink();
+                          } catch (err) {
+                            addDebugLog(`ERROR: Native bridge call failed: ${err}`);
+                            setBridgeStatus('error');
+                            if (connectionTimeoutRef.current) {
+                              clearTimeout(connectionTimeoutRef.current);
+                              connectionTimeoutRef.current = null;
+                            }
+                          }
+                        });
+                      } else {
+                        // Reduced delay for web bluetooth trigger
+                        connectWebBluetooth().finally(() => {
                           if (connectionTimeoutRef.current) {
                             clearTimeout(connectionTimeoutRef.current);
                             connectionTimeoutRef.current = null;
                           }
-                        }
-                      });
-                    } else {
-                      // Reduced delay for web bluetooth trigger
-                      connectWebBluetooth().finally(() => {
+                        });
+                      }
+                    } else if (hardwareMode === 'esp32-serial') {
+                      connectWebSerial().finally(() => {
                         if (connectionTimeoutRef.current) {
                           clearTimeout(connectionTimeoutRef.current);
                           connectionTimeoutRef.current = null;
@@ -1109,6 +1300,7 @@ const App: React.FC = () => {
                   deviceHistory={deviceHistory}
                   syncStatus={syncStatus}
                   onManualSync={handleManualSync}
+                  onSetHardwareMode={setHardwareMode}
                 />
               </div>
             </div>
