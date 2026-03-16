@@ -142,7 +142,7 @@ public class MainActivity extends AppCompatActivity {
         checkAndRequestPermissions();
         setupWebView();
         
-        webView.loadUrl("https://ais-dev-toqlyfvcyq4ckq54q77wf3-127120545089.asia-southeast1.run.app");
+        webView.loadUrl("https://osm-live-monitoring.vercel.app");
         setupBackNavigation();
     }
 
@@ -293,24 +293,16 @@ public class MainActivity extends AppCompatActivity {
                     }
 
                     if (lastDeviceAddress != null) {
-                        sendToJs("LINK: Attempting fast reconnect to " + lastDeviceAddress + "...");
+                        sendToJs("LINK: Fast-path initiated for " + lastDeviceAddress);
                         BluetoothDevice device = bluetoothAdapter.getRemoteDevice(lastDeviceAddress);
                         if (device != null) {
                             connectToDevice(device);
-                            
-                            // Set a timeout for fast reconnect, if it fails, start scanning
-                            mainHandler.postDelayed(() -> {
-                                if (bluetoothGatt == null && !isScanning) {
-                                    sendToJs("WARN: Fast reconnect failed. Falling back to scan...");
-                                    startScan();
-                                }
-                            }, 3000);
-                            return;
                         }
                     }
 
+                    // Start scanning immediately in parallel with fast-path
                     startScan();
-                }, 400); // 400ms delay after cleanup
+                }, 200); // Reduced delay
             });
         }
 
@@ -444,19 +436,48 @@ public class MainActivity extends AppCompatActivity {
             if (ActivityCompat.checkSelfPermission(MainActivity.this, Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED) {
                 String name = device.getName();
                 String address = device.getAddress();
-                Log.d(TAG, "Found device: " + name + " [" + address + "]");
                 
-                // Log every found device to the JS debug log to help user identify their device
-                String deviceLabel = (name != null ? name : "Unnamed") + " (" + address + ")";
+                // If we are already connecting to THIS specific address, ignore
+                if (isConnecting && bluetoothGatt != null && bluetoothGatt.getDevice().getAddress().equals(address)) {
+                    return;
+                }
+
+                boolean isMatch = false;
                 
-                if (!isConnecting && name != null && (name.toUpperCase().contains("OSM") || name.toUpperCase().contains("ESP32") || name.toUpperCase().contains("CAN") || name.toUpperCase().contains("MASTER"))) {
+                // 1. Name-based matching
+                if (name != null) {
+                    String upperName = name.toUpperCase();
+                    if (upperName.contains("OSM") || upperName.contains("ESP32") || 
+                        upperName.contains("CAN") || upperName.contains("MASTER") ||
+                        upperName.contains("UART") || upperName.contains("SERIAL")) {
+                        isMatch = true;
+                    }
+                }
+                
+                // 2. UUID-based matching (passed filters)
+                if (!isMatch && result.getScanRecord() != null) {
+                    List<android.os.ParcelUuid> uuids = result.getScanRecord().getServiceUuids();
+                    if (uuids != null) {
+                        for (android.os.ParcelUuid uuid : uuids) {
+                            if (uuid.getUuid().equals(UART_SERVICE_UUID) || uuid.getUuid().equals(HM10_SERVICE_UUID)) {
+                                isMatch = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+
+                if (isMatch && !isConnected) {
+                    // If we were connecting to something else that hasn't responded, override it
+                    if (isConnecting) {
+                        Log.d(TAG, "Overriding previous connection attempt with new match: " + name);
+                        cleanupBluetooth();
+                    }
+                    
                     isConnecting = true;
-                    sendToJs("MATCH_FOUND: " + name + ". Establishing dedicated link...");
+                    sendToJs("MATCH: " + (name != null ? name : "Unnamed") + " found. Linking...");
                     stopCurrentScan();
                     connectToDevice(device);
-                } else if (!isConnecting) {
-                    // Just log discovered devices that don't match
-                    sendToJs("DISCOVERED: " + deviceLabel);
                 }
             }
         }
@@ -645,6 +666,14 @@ public class MainActivity extends AppCompatActivity {
                         deviceName = gatt.getDevice().getName();
                     }
                     if (deviceName == null) deviceName = "Unknown BLE";
+                    
+                    // Save last device address for Instant Connect
+                    if (ActivityCompat.checkSelfPermission(MainActivity.this, Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED) {
+                        String address = gatt.getDevice().getAddress();
+                        getSharedPreferences(PREFS_NAME, MODE_PRIVATE).edit().putString(KEY_LAST_ADDR, address).apply();
+                        lastDeviceAddress = address;
+                    }
+                    
                     evaluateJs("window.onNativeBleStatus('connected', '" + deviceName + "')");
                 }
             } else {
@@ -658,12 +687,14 @@ public class MainActivity extends AppCompatActivity {
             if (TX_CHAR_UUID.equals(uuid) || HM10_CHAR_UUID.equals(uuid)) {
                 byte[] val = characteristic.getValue();
                 if (val != null) {
+                    // Log to Android Logcat for native debugging
+                    Log.d(TAG, "onCharacteristicChanged: Received " + val.length + " bytes from " + uuid);
+                    
                     double arrivalTime = SystemClock.elapsedRealtimeNanos() / 1000000.0;
                     String data = new String(val, java.nio.charset.StandardCharsets.UTF_8);
                     
                     synchronized (bleDataBuffer) {
                         if (isAtStartOfLine) {
-                            // Send high-precision timestamp using US locale to ensure dot decimal separator
                             bleDataBuffer.append("TS:").append(String.format(java.util.Locale.US, "%.3f", arrivalTime)).append("\n");
                         }
                         bleDataBuffer.append(data);

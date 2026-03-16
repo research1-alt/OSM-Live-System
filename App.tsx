@@ -850,14 +850,18 @@ const App: React.FC = () => {
         pendingFramesRef.current = [];
         
         // Update Latest Frames (the grid) - always update this for real-time monitoring
-        const latest: Record<string, CANFrame> = {};
-        batch.forEach(f => latest[normalizeId(f.id.replace('0x', ''), true)] = f);
-        setLatestFrames(prev => ({ ...prev, ...latest }));
+        setLatestFrames(prev => {
+          const next = { ...prev };
+          batch.forEach(f => {
+            const normId = normalizeId(f.id.replace('0x', ''), true);
+            next[normId] = f;
+          });
+          return next;
+        });
 
         // Update Trace List (the scrolling list)
         setFrames(prev => {
           const next = [...prev, ...batch];
-          // Buffer limit removed as requested. Virtualization handles performance.
           return next;
         });
       }
@@ -1060,6 +1064,7 @@ const App: React.FC = () => {
               isPaused={isPaused} isSaving={isSaving} autoSaveEnabled={autoSaveEnabled} onToggleAutoSave={() => setAutoSaveEnabled(!autoSaveEnabled)}
               onClearTrace={() => { 
                 setFrames([]); 
+                setLatestFrames({});
                 allFramesRef.current = [];
                 frameMapRef.current.clear();
                 hasTriggeredAutoSaveRef.current = false; 
