@@ -740,8 +740,8 @@ const App: React.FC = () => {
           const secondHash = content.indexOf('#', firstHash + 1);
           
           if (firstHash !== -1 && secondHash !== -1) {
-            const id = content.substring(0, firstHash).trim();
-            const dlcStr = content.substring(firstHash + 1, secondHash).trim();
+            const id = content.substring(0, firstHash);
+            const dlcStr = content.substring(firstHash + 1, secondHash);
             const dlc = parseInt(dlcStr) || 0;
             const rawDataStr = content.substring(secondHash + 1);
             
@@ -750,12 +750,6 @@ const App: React.FC = () => {
             const dataString = parts[0] || "";
             const hwTsString = parts[1] || "";
             
-            // Validate ID - if it contains commas, it's malformed data, not an ID
-            if (id.includes(',') || id.length > 12) {
-              addDebugLog(`MALFORMED_SERIAL: Skipping line with invalid ID format: ${id}`);
-              continue;
-            }
-
             let frameHwTimestamp = arrivalTime;
             if (hwTsString) {
               const esp32Micros = parseInt(hwTsString);
@@ -1418,7 +1412,6 @@ const App: React.FC = () => {
               busSpeed={busSpeed}
               onBusSpeedChange={setBusSpeed}
               showBufferWarning={allFramesRef.current.length > (MAX_ALL_FRAMES_LIMIT * 0.9)}
-              totalBufferCount={allFramesRef.current.length}
               onCloseWarning={() => {}}
               syncStatus={syncStatus}
               onManualSync={handleManualSync}
