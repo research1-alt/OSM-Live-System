@@ -485,7 +485,7 @@ const OfflineDataVisualizer: React.FC<OfflineDataVisualizerProps> = ({
         )}
       </div>
       <div className="h-6 bg-slate-100 border-t flex items-center justify-between px-6 text-[8px] font-orbitron font-black text-slate-400 uppercase tracking-widest shrink-0">
-         <div className="flex gap-6"><span>{frames.length.toLocaleString()} Pkts_Buffer</span><span>OSM_TELEMETRY_ENGINE_v9.7</span></div>
+         <div className="flex gap-6"><span>{frames?.length?.toLocaleString() || 0} Pkts_Buffer</span><span>OSM_TELEMETRY_ENGINE_v9.7</span></div>
          <div className="flex items-center gap-2">OFFLINE_LOG_ANALYSIS</div>
       </div>
     </div>

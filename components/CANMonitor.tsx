@@ -13,7 +13,6 @@ interface CANMonitorProps {
   onToggleAutoSave?: () => void;
   msgPerSec?: number;
   onExportWideCsv?: () => void;
-  totalBufferCount?: number;
 }
 
 const CANMonitor: React.FC<CANMonitorProps> = ({ 
@@ -25,8 +24,7 @@ const CANMonitor: React.FC<CANMonitorProps> = ({
   autoSaveEnabled = false,
   onToggleAutoSave,
   msgPerSec = 0,
-  onExportWideCsv,
-  totalBufferCount
+  onExportWideCsv
 }) => {
   const [autoScroll, setAutoScroll] = useState(true);
   const [isResetting, setIsResetting] = useState(false);
@@ -40,38 +38,21 @@ const CANMonitor: React.FC<CANMonitorProps> = ({
   };
 
   const [scrollTop, setScrollTop] = useState(0);
-  const isProgrammaticScroll = useRef(false);
   const ROW_HEIGHT = 20; // h-5 is 20px
   const VISIBLE_ROWS = 30;
 
   const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    setScrollTop(e.currentTarget.scrollTop);
+    // If user scrolls up, disable auto-scroll
     const { scrollHeight, clientHeight, scrollTop: currentScroll } = e.currentTarget;
-    setScrollTop(currentScroll);
-    
-    if (isProgrammaticScroll.current) return;
-
-    // If user scrolls up significantly, disable auto-scroll
-    // Increased threshold to 150px for mobile momentum scrolling
-    const isAtBottom = scrollHeight - clientHeight - currentScroll < 150;
-    
-    if (!isAtBottom && autoScroll) {
-      setAutoScroll(false);
-    } else if (isAtBottom && !autoScroll) {
-      // Re-enable if they manually scroll back to the very bottom
-      setAutoScroll(true);
-    }
+    const isAtBottom = scrollHeight - clientHeight - currentScroll < 50;
+    if (!isAtBottom) setAutoScroll(false);
+    else setAutoScroll(true);
   };
 
   useEffect(() => {
     if (autoScroll && !isPaused && scrollRef.current) {
-      isProgrammaticScroll.current = true;
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-      
-      // Use a small timeout to clear the programmatic flag after the browser has processed the scroll
-      const timeout = setTimeout(() => {
-        isProgrammaticScroll.current = false;
-      }, 100);
-      return () => clearTimeout(timeout);
     }
   }, [frames.length, isPaused, autoScroll]);
 
@@ -195,7 +176,7 @@ const CANMonitor: React.FC<CANMonitorProps> = ({
 
       <div className="bg-slate-50 px-3 md:px-6 py-1.5 border-t border-slate-200 flex flex-col sm:flex-row justify-between items-center text-[7px] md:text-[8px] font-orbitron font-black text-slate-400 uppercase shrink-0 z-[60] gap-1">
         <div className="flex flex-wrap gap-3 md:gap-6 justify-center items-center">
-          <span className="text-indigo-600 font-bold">{(totalBufferCount || frames.length).toLocaleString()} BUFFER</span>
+          <span className="text-indigo-600 font-bold">{frames.length?.toLocaleString() || 0} BUFFER</span>
           <span className="text-emerald-600 font-bold">{msgPerSec?.toLocaleString() || 0} MSG/SEC</span>
         </div>
         <div className="flex items-center gap-4">
