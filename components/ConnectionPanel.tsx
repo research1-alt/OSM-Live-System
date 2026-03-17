@@ -21,6 +21,7 @@ interface ConnectionPanelProps {
   baudRate?: number;
   onSetBaudRate?: (rate: number) => void;
   onAddDebugLog?: (log: string) => void;
+  onRequestBatteryExclusion?: () => void;
 }
 
 const ConnectionPanel: React.FC<ConnectionPanelProps> = ({ 
@@ -39,7 +40,8 @@ const ConnectionPanel: React.FC<ConnectionPanelProps> = ({
   onManualSync,
   baudRate = 115200,
   onSetBaudRate,
-  onAddDebugLog
+  onAddDebugLog,
+  onRequestBatteryExclusion
 }) => {
   const [isNative, setIsNative] = useState(false);
   const [btSupported, setBtSupported] = useState(true);
@@ -50,7 +52,7 @@ const ConnectionPanel: React.FC<ConnectionPanelProps> = ({
   const checkUsbDevices = async () => {
     if ('usb' in navigator) {
       try {
-        const devices = await navigator.usb.getDevices();
+        const devices = await (navigator as any).usb.getDevices();
         setUsbDevices(devices);
       } catch (err) {
         console.error("USB Check Error:", err);
@@ -62,7 +64,7 @@ const ConnectionPanel: React.FC<ConnectionPanelProps> = ({
   const requestUsbPermission = async () => {
     if ('usb' in navigator) {
       try {
-        const device = await navigator.usb.requestDevice({ filters: [] });
+        const device = await (navigator as any).usb.requestDevice({ filters: [] });
         onAddDebugLog?.(`USB: Permission granted for ${device.productName}`);
         checkUsbDevices();
       } catch (err: any) {
@@ -297,6 +299,23 @@ const ConnectionPanel: React.FC<ConnectionPanelProps> = ({
                           <option value={921600}>921600 bps</option>
                         </select>
                       </div>
+
+                      {isNative && (
+                        <div className="pt-4 border-t border-slate-100">
+                           <h5 className="text-[9px] font-orbitron font-black text-slate-900 uppercase tracking-widest mb-2 flex items-center gap-2">
+                             <ShieldCheck size={12} className="text-emerald-500" /> Background_Reliability
+                           </h5>
+                           <p className="text-[9px] text-slate-500 mb-3 leading-relaxed">
+                             To prevent Android from killing the app during long sessions, exclude it from battery optimizations.
+                           </p>
+                           <button 
+                             onClick={onRequestBatteryExclusion}
+                             className="w-full py-2 bg-emerald-50 border border-emerald-100 rounded-xl text-[9px] font-orbitron font-black text-emerald-600 uppercase hover:bg-emerald-100 transition-all flex items-center justify-center gap-2"
+                           >
+                             <Zap size={12} /> Optimize_Background_Link
+                           </button>
+                        </div>
+                      )}
                     </div>
                   </div>
                   

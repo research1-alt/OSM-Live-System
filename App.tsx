@@ -113,6 +113,62 @@ const App: React.FC = () => {
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
   const [showInstallOverlay, setShowInstallOverlay] = useState(false);
 
+  const addDebugLog = useCallback((msg: string) => {
+    const time = new Date().toLocaleTimeString('en-GB', { hour12: false });
+    setDebugLog(prev => [`[${time}] ${msg}`, ...prev].slice(0, 50));
+  }, []);
+
+  // Wake Lock State
+  const wakeLockRef = useRef<any>(null);
+
+  // Request Wake Lock to keep screen on during active monitoring
+  const requestWakeLock = useCallback(async () => {
+    if ('wakeLock' in navigator) {
+      try {
+        wakeLockRef.current = await (navigator as any).wakeLock.request('screen');
+        addDebugLog("WAKE_LOCK: Screen lock acquired.");
+        
+        wakeLockRef.current.addEventListener('release', () => {
+          addDebugLog("WAKE_LOCK: Screen lock released.");
+        });
+      } catch (err: any) {
+        addDebugLog(`WAKE_LOCK_ERROR: ${err.message}`);
+      }
+    }
+  }, [addDebugLog]);
+
+  const releaseWakeLock = useCallback(async () => {
+    if (wakeLockRef.current) {
+      await wakeLockRef.current.release();
+      wakeLockRef.current = null;
+    }
+  }, []);
+
+  // Handle visibility changes to re-acquire wake lock if needed
+  useEffect(() => {
+    const handleVisibilityChange = async () => {
+      if (wakeLockRef.current !== null && document.visibilityState === 'visible') {
+        await requestWakeLock();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, [requestWakeLock]);
+
+  // Manage Wake Lock based on connection status
+  useEffect(() => {
+    if (hwStatus === 'active' || bridgeStatus === 'connected') {
+      requestWakeLock();
+    } else {
+      releaseWakeLock();
+    }
+    
+    return () => {
+      releaseWakeLock();
+    };
+  }, [hwStatus, bridgeStatus, requestWakeLock, releaseWakeLock]);
+
   // Process Sync Queue periodically
   useEffect(() => {
     // Initial process
@@ -172,11 +228,6 @@ const App: React.FC = () => {
     setShowInstallOverlay(false);
   };
 
-  const addDebugLog = useCallback((msg: string) => {
-    const time = new Date().toLocaleTimeString('en-GB', { hour12: false });
-    setDebugLog(prev => [`[${time}] ${msg}`, ...prev].slice(0, 50));
-  }, []);
-
   const startSimulation = () => {
     if (!isAdmin) return;
     import('./utils/canSim').then(m => m.resetSimulationState());
@@ -224,6 +275,14 @@ const App: React.FC = () => {
       }
     } catch (e: any) {
       addDebugLog(`TX_ERROR: ${e.message}`);
+    }
+  };
+
+  const handleRequestBatteryExclusion = () => {
+    if ((window as any).NativeBleBridge?.requestBatteryOptimizationExclusion) {
+      (window as any).NativeBleBridge.requestBatteryOptimizationExclusion();
+    } else {
+      addDebugLog("SYSTEM: Battery optimization request only available in Native App.");
     }
   };
 
@@ -740,8 +799,8 @@ const App: React.FC = () => {
           const secondHash = content.indexOf('#', firstHash + 1);
           
           if (firstHash !== -1 && secondHash !== -1) {
-            const id = content.substring(0, firstHash).trim();
-            const dlcStr = content.substring(firstHash + 1, secondHash).trim();
+            const id = content.substring(0, firstHash);
+            const dlcStr = content.substring(firstHash + 1, secondHash);
             const dlc = parseInt(dlcStr) || 0;
             const rawDataStr = content.substring(secondHash + 1);
             
@@ -750,12 +809,6 @@ const App: React.FC = () => {
             const dataString = parts[0] || "";
             const hwTsString = parts[1] || "";
             
-            // Validate ID - if it contains commas, it's malformed data, not an ID
-            if (id.includes(',') || id.length > 12) {
-              addDebugLog(`MALFORMED_SERIAL: Skipping line with invalid ID format: ${id}`);
-              continue;
-            }
-
             let frameHwTimestamp = arrivalTime;
             if (hwTsString) {
               const esp32Micros = parseInt(hwTsString);
@@ -1181,10 +1234,17 @@ const App: React.FC = () => {
           }
           return next;
         });
+
+        // Auto-Save Logic
+        if (autoSaveEnabled && !hasTriggeredAutoSaveRef.current && allFramesRef.current.length >= MAX_ALL_FRAMES_LIMIT) {
+          hasTriggeredAutoSaveRef.current = true;
+          addDebugLog("SYSTEM: Auto-save triggered (Buffer Full).");
+          handleSaveTrace(true);
+        }
       }
     }, 16); // 16ms cycle (60fps) for fluent processing
     return () => clearInterval(interval);
-  }, []);
+  }, [autoSaveEnabled, addDebugLog, handleSaveTrace]);
 
   // Hardware Identification Logging
   useEffect(() => {
@@ -1395,6 +1455,9 @@ const App: React.FC = () => {
                   onSetHardwareMode={setHardwareMode}
                   baudRate={baudRate}
                   onSetBaudRate={setBaudRate}
+                  onAddDebugLog={addDebugLog}
+                  onRequestBatteryExclusion={handleRequestBatteryExclusion}
+                  hwStatus={hwStatus}
                 />
               </div>
             </div>
@@ -1418,7 +1481,6 @@ const App: React.FC = () => {
               busSpeed={busSpeed}
               onBusSpeedChange={setBusSpeed}
               showBufferWarning={allFramesRef.current.length > (MAX_ALL_FRAMES_LIMIT * 0.9)}
-              totalBufferCount={allFramesRef.current.length}
               onCloseWarning={() => {}}
               syncStatus={syncStatus}
               onManualSync={handleManualSync}

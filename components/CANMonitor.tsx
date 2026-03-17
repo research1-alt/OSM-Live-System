@@ -40,21 +40,38 @@ const CANMonitor: React.FC<CANMonitorProps> = ({
   };
 
   const [scrollTop, setScrollTop] = useState(0);
+  const isProgrammaticScroll = useRef(false);
   const ROW_HEIGHT = 20; // h-5 is 20px
   const VISIBLE_ROWS = 30;
 
   const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
-    setScrollTop(e.currentTarget.scrollTop);
-    // If user scrolls up, disable auto-scroll
     const { scrollHeight, clientHeight, scrollTop: currentScroll } = e.currentTarget;
-    const isAtBottom = scrollHeight - clientHeight - currentScroll < 50;
-    if (!isAtBottom) setAutoScroll(false);
-    else setAutoScroll(true);
+    setScrollTop(currentScroll);
+    
+    if (isProgrammaticScroll.current) return;
+
+    // If user scrolls up significantly, disable auto-scroll
+    // Increased threshold to 150px for mobile momentum scrolling
+    const isAtBottom = scrollHeight - clientHeight - currentScroll < 150;
+    
+    if (!isAtBottom && autoScroll) {
+      setAutoScroll(false);
+    } else if (isAtBottom && !autoScroll) {
+      // Re-enable if they manually scroll back to the very bottom
+      setAutoScroll(true);
+    }
   };
 
   useEffect(() => {
     if (autoScroll && !isPaused && scrollRef.current) {
+      isProgrammaticScroll.current = true;
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+      
+      // Use a small timeout to clear the programmatic flag after the browser has processed the scroll
+      const timeout = setTimeout(() => {
+        isProgrammaticScroll.current = false;
+      }, 100);
+      return () => clearTimeout(timeout);
     }
   }, [frames.length, isPaused, autoScroll]);
 

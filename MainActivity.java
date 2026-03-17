@@ -250,11 +250,13 @@ public class MainActivity extends AppCompatActivity {
             startService(serviceIntent);
         }
         
-        // Acquire WakeLock to keep CPU running
+        // Acquire WakeLock to keep CPU running indefinitely while connected
         PowerManager powerManager = (PowerManager) getSystemService(POWER_SERVICE);
         if (powerManager != null && (wakeLock == null || !wakeLock.isHeld())) {
             wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "OSM:DataCollectionLock");
-            wakeLock.acquire(10 * 60 * 1000L /*10 minutes max per session or until disconnect*/);
+            // No timeout - we will release it manually on disconnect
+            wakeLock.acquire();
+            Log.d(TAG, "WakeLock Acquired Indefinitely");
         }
     }
 
@@ -1098,6 +1100,25 @@ public class MainActivity extends AppCompatActivity {
     public class WebAppInterface {
         @JavascriptInterface
         public boolean isNativeApp() { return true; }
+
+        @JavascriptInterface
+        public void requestBatteryOptimizationExclusion() {
+            runOnUiThread(() -> {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                    Intent intent = new Intent();
+                    String packageName = getPackageName();
+                    PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
+                    if (pm != null && !pm.isIgnoringBatteryOptimizations(packageName)) {
+                        intent.setAction(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS);
+                        intent.setData(Uri.parse("package:" + packageName));
+                        startActivity(intent);
+                        sendToJs("SYSTEM: Requesting Battery Optimization Exclusion...");
+                    } else {
+                        sendToJs("SYSTEM: App is already excluded from battery optimizations.");
+                    }
+                }
+            });
+        }
 
         @JavascriptInterface
         public void requestLogFile(String suggestedName) {
