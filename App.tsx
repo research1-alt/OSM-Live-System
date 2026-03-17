@@ -16,7 +16,9 @@ import { User, authService } from '@/services/authService';
 import { generateMockPacket } from '@/utils/canSim';
 
 const MAX_FRAME_LIMIT = 10000; 
-const MAX_ALL_FRAMES_LIMIT = 100000;
+const MAX_ALL_FRAMES_LIMIT = 500000; 
+const BATCH_UPDATE_INTERVAL = 10; 
+const STALE_SIGNAL_TIMEOUT = 5000; 
 // Common BLE UART Service UUIDs
 const UART_SERVICE_UUID = "6e400001-b5a3-f393-e0a9-e50e24dcca9e"; // Nordic NUS
 const HM10_SERVICE_UUID = "0000ffe0-0000-1000-8000-00805f9b34fb"; // HM-10
@@ -104,7 +106,7 @@ const App: React.FC = () => {
       return [];
     }
   });
-  const [baudRate, setBaudRate] = useState(115200);
+  const [baudRate, setBaudRate] = useState(921600);
   const [debugLog, setDebugLog] = useState<string[]>([]);
   
   // PWA Install Prompt State
@@ -401,7 +403,7 @@ const App: React.FC = () => {
         const idToDbcMap = new Map<string, DBCMessage>();
         Object.entries(library.database).forEach(([decId, msg]) => idToDbcMap.set(normalizeId(decId), msg as DBCMessage));
         const uniqueIdsInTrace = new Set<string>();
-        traceSource.slice(-50000).forEach(f => uniqueIdsInTrace.add(normalizeId(f.id.replace('0x', ''), true)));
+        traceSource.forEach(f => uniqueIdsInTrace.add(normalizeId(f.id.replace('0x', ''), true)));
         const activeSignalMeta: any[] = [];
         const msgIdToSignals: Record<string, string[]> = {};
         uniqueIdsInTrace.forEach(normId => {
@@ -419,7 +421,7 @@ const App: React.FC = () => {
         const csvRows: string[] = [header];
         const lastKnownValues: Record<string, string> = {};
         activeSignalMeta.forEach(s => lastKnownValues[s.name] = "0");
-        traceSource.slice(-50000).forEach((frame) => {
+        traceSource.forEach((frame) => {
           const frameNormId = normalizeId(frame.id.replace('0x', ''), true);
           if (msgIdToSignals[frameNormId]) {
             const dbEntry = idToDbcMap.get(frameNormId);
@@ -638,7 +640,7 @@ const App: React.FC = () => {
               continue;
             }
             
-            // Standard CAN frame parser: ID#DLC#DATA
+            // Standard CAN frame parser: ID#DLC#DATA#TIMESTAMP
             const firstHash = content.indexOf('#');
             const secondHash = content.indexOf('#', firstHash + 1);
             
@@ -648,10 +650,23 @@ const App: React.FC = () => {
               const dlc = parseInt(dlcStr) || 0;
               let rawDataStr = content.substring(secondHash + 1);
               
-              // Extract data portion. User's code: ID#DLC#D1,D2,D3...
+              // Extract data portion. User's code: ID#DLC#D1,D2,D3...#TIMESTAMP
               const parts = rawDataStr.split('#');
               const dataString = parts[0] || "";
+              const hwTsString = parts[1] || "";
               
+              let frameHwTimestamp = arrivalTime;
+              if (hwTsString) {
+                const esp32Micros = parseInt(hwTsString);
+                if (!isNaN(esp32Micros)) {
+                  const esp32Ms = esp32Micros / 1000.0;
+                  if (javaTimeOffsetRef.current === null) {
+                    javaTimeOffsetRef.current = performance.now() - esp32Ms;
+                  }
+                  frameHwTimestamp = esp32Ms + javaTimeOffsetRef.current;
+                }
+              }
+
               // Extract hex pairs. User's code uses commas, match handles it.
               const allHexPairs = dataString.match(/[0-9A-Fa-f]{2}/g) || [];
               const dataParts = allHexPairs.slice(0, dlc);
@@ -660,8 +675,7 @@ const App: React.FC = () => {
                 dataParts.push("00");
               }
               
-              // User's code doesn't send hardware timestamp, use arrivalTime
-              handleNewFrame(id, dlc, dataParts, arrivalTime);
+              handleNewFrame(id, dlc, dataParts, frameHwTimestamp);
             }
           }
         }
@@ -731,10 +745,23 @@ const App: React.FC = () => {
             const dlc = parseInt(dlcStr) || 0;
             const rawDataStr = content.substring(secondHash + 1);
             
+            // Extract data portion. User's code: ID#DLC#D1,D2,D3...#TIMESTAMP
             const parts = rawDataStr.split('#');
             const dataString = parts[0] || "";
             const hwTsString = parts[1] || "";
             
+            let frameHwTimestamp = arrivalTime;
+            if (hwTsString) {
+              const esp32Micros = parseInt(hwTsString);
+              if (!isNaN(esp32Micros)) {
+                const esp32Ms = esp32Micros / 1000.0;
+                if (javaTimeOffsetRef.current === null) {
+                  javaTimeOffsetRef.current = performance.now() - esp32Ms;
+                }
+                frameHwTimestamp = esp32Ms + javaTimeOffsetRef.current;
+              }
+            }
+
             const allHexPairs = dataString.match(/[0-9A-Fa-f]{2}/g) || [];
             const dataParts = allHexPairs.slice(0, dlc);
             
@@ -742,15 +769,7 @@ const App: React.FC = () => {
               dataParts.push("00");
             }
             
-            let hwTs = arrivalTime;
-            if (hwTsString) {
-              const val = parseFloat(hwTsString);
-              if (!isNaN(val)) {
-                hwTs = val / 1000;
-              }
-            }
-            
-            handleNewFrame(id, dlc, dataParts, hwTs);
+            handleNewFrame(id, dlc, dataParts, frameHwTimestamp);
           }
         }
       }
@@ -847,10 +866,23 @@ const App: React.FC = () => {
               const dlc = parseInt(dlcStr) || 0;
               const rawDataStr = trimmed.substring(secondHash + 1);
               
-              // Extract data portion. User's code: ID#DLC#D1,D2,D3...
+              // Extract data portion. User's code: ID#DLC#D1,D2,D3...#TIMESTAMP
               const parts = rawDataStr.split('#');
               const dataString = parts[0] || "";
+              const hwTsString = parts[1] || "";
               
+              let frameHwTimestamp = performance.now();
+              if (hwTsString) {
+                const esp32Micros = parseInt(hwTsString);
+                if (!isNaN(esp32Micros)) {
+                  const esp32Ms = esp32Micros / 1000.0;
+                  if (javaTimeOffsetRef.current === null) {
+                    javaTimeOffsetRef.current = performance.now() - esp32Ms;
+                  }
+                  frameHwTimestamp = esp32Ms + javaTimeOffsetRef.current;
+                }
+              }
+
               // Extract hex pairs. User's code uses commas, match handles it.
               const allHexPairs = dataString.match(/[0-9A-Fa-f]{2}/g) || [];
               const dataParts = allHexPairs.slice(0, dlc);
@@ -859,8 +891,7 @@ const App: React.FC = () => {
                 dataParts.push("00");
               }
               
-              // User's code doesn't send hardware timestamp, use performance.now()
-              handleNewFrame(id, dlc, dataParts, performance.now());
+              handleNewFrame(id, dlc, dataParts, frameHwTimestamp);
             }
           }
         }
@@ -1021,10 +1052,23 @@ const App: React.FC = () => {
               const dlc = parseInt(dlcStr) || 0;
               const rawDataStr = trimmed.substring(secondHash + 1);
               
-              // Extract data portion. User's code: ID#DLC#D1,D2,D3...
+              // Extract data portion. User's code: ID#DLC#D1,D2,D3...#TIMESTAMP
               const parts = rawDataStr.split('#');
               const dataString = parts[0] || "";
+              const hwTsString = parts[1] || "";
               
+              let frameHwTimestamp = arrivalTime;
+              if (hwTsString) {
+                const esp32Micros = parseInt(hwTsString);
+                if (!isNaN(esp32Micros)) {
+                  const esp32Ms = esp32Micros / 1000.0;
+                  if (javaTimeOffsetRef.current === null) {
+                    javaTimeOffsetRef.current = performance.now() - esp32Ms;
+                  }
+                  frameHwTimestamp = esp32Ms + javaTimeOffsetRef.current;
+                }
+              }
+
               // Extract hex pairs. User's code uses commas, match handles it.
               const allHexPairs = dataString.match(/[0-9A-Fa-f]{2}/g) || [];
               const dataParts = allHexPairs.slice(0, dlc);
@@ -1033,8 +1077,7 @@ const App: React.FC = () => {
                 dataParts.push("00");
               }
               
-              // User's code doesn't send hardware timestamp, use arrivalTime
-              handleNewFrame(id, dlc, dataParts, arrivalTime);
+              handleNewFrame(id, dlc, dataParts, frameHwTimestamp);
             }
           }
         }
