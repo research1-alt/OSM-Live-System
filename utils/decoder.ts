@@ -51,25 +51,35 @@ export function normalizeId(id: string | number | undefined, forceHex: boolean =
   }
 
   // MASK: 0x1FFFFFFF (29-bit). 
-  // This strips hardware flags like 0x80000000 (Extended) or 0x40000000 (Error)
-  // while preserving the actual 11-bit or 29-bit CAN Identifier.
-  const masked = numericId & 0x1FFFFFFFn;
-  return masked.toString(16).toUpperCase();
+  let masked = numericId & 0x1FFFFFFFn;
+  
+  // If it's an extended ID, the DBC keys in this project expect the 0x80000000 bit set
+  if (masked > 0x7FFn) {
+    masked |= 0x80000000n;
+  }
+  
+  // Return as Decimal string to match MY_CUSTOM_DBC keys
+  return masked.toString();
 }
 
 /**
- * Formats a normalized hex string for the UI.
+ * Formats a normalized ID string for the UI.
+ * Expects a decimal string (from normalizeId).
  */
 export function formatIdForDisplay(id: string): string {
-  const numeric = parseInt(id, 16);
-  if (isNaN(numeric)) return id.toUpperCase();
+  if (!id) return "";
+  const numeric = BigInt(id);
+  
+  // Strip the extended bit for display
+  const displayId = numeric & 0x1FFFFFFFn;
+  const hex = displayId.toString(16).toUpperCase();
   
   // Standard CAN is 0x7FF or less
-  if (numeric <= 0x7FF) {
-    return id.toUpperCase().padStart(3, '0');
+  if (displayId <= 0x7FFn) {
+    return hex.padStart(3, '0');
   } else {
     // Extended/J1939
-    return id.toUpperCase().padStart(8, '0');
+    return hex.padStart(8, '0');
   }
 }
 

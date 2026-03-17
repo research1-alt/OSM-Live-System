@@ -1,6 +1,6 @@
 
 import React, { useState, useRef, useEffect } from 'react';
-import { Menu, X, LayoutDashboard, Database, Send, ShieldCheck, Sparkles } from 'lucide-react';
+import { Menu, X, LayoutDashboard, Database, Send, ShieldCheck, Sparkles, Save } from 'lucide-react';
 import { CANFrame, ConnectionStatus, ConversionLibrary, TransmitFrame } from '../types.ts';
 import CANMonitor from './CANMonitor.tsx';
 import LibraryPanel from './LibraryPanel.tsx';
@@ -195,26 +195,34 @@ const LiveDashboard: React.FC<LiveDashboardProps> = (props) => {
               />
             </div>
 
-            {/* Buffer Warning Pop-up */}
+            {/* Buffer Warning Banner - Non-blocking */}
             {props.showBufferWarning && (
-              <div className="absolute inset-0 z-[150] flex items-center justify-center p-6">
-                <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-md" onClick={props.onCloseWarning}></div>
-                <div className="relative w-full max-w-sm bg-white rounded-[40px] p-8 shadow-2xl border border-amber-100 animate-in zoom-in duration-300">
-                  <div className="w-16 h-16 bg-amber-100 rounded-3xl flex items-center justify-center text-amber-600 mb-6 mx-auto">
-                    <Database size={32} className="animate-bounce" />
+              <div className="bg-amber-50 border-l-4 border-amber-500 p-4 rounded-xl flex items-center justify-between shadow-sm animate-in slide-in-from-top duration-300">
+                <div className="flex items-center gap-3">
+                  <div className="text-amber-600">
+                    <Database size={20} className="animate-pulse" />
                   </div>
-                  <h3 className="text-xl font-orbitron font-black text-slate-900 text-center uppercase tracking-tight mb-2">Buffer Critical</h3>
-                  <p className="text-slate-500 text-center text-sm mb-8 leading-relaxed">
-                    Trace buffer has reached <span className="text-amber-600 font-bold">90,000</span> frames. Please save your trace or clear the buffer to maintain performance.
-                  </p>
-                  <div className="space-y-3">
-                    <button 
-                      onClick={props.onCloseWarning}
-                      className="w-full py-4 bg-indigo-600 text-white rounded-2xl font-orbitron font-black uppercase tracking-widest shadow-lg active:scale-95 transition-all"
-                    >
-                      I Understand
-                    </button>
+                  <div>
+                    <h3 className="text-[10px] font-orbitron font-black text-amber-900 uppercase tracking-tight">Buffer Critical</h3>
+                    <p className="text-[9px] text-amber-700 font-medium">
+                      Trace buffer has reached 90% capacity. Save your log now to avoid data loss.
+                    </p>
                   </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button 
+                    onClick={props.onSaveTrace}
+                    className="px-4 py-1.5 bg-amber-600 text-white rounded-lg text-[9px] font-orbitron font-black uppercase tracking-widest shadow-sm active:scale-95 transition-all hover:bg-amber-700 flex items-center gap-1.5"
+                  >
+                    <Save size={12} />
+                    Save Now
+                  </button>
+                  <button 
+                    onClick={props.onCloseWarning}
+                    className="p-1.5 text-amber-400 hover:text-amber-600 transition-colors"
+                  >
+                    <X size={16} />
+                  </button>
                 </div>
               </div>
             )}
