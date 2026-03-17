@@ -13,6 +13,7 @@ interface CANMonitorProps {
   onToggleAutoSave?: () => void;
   msgPerSec?: number;
   onExportWideCsv?: () => void;
+  totalBufferCount?: number;
 }
 
 const CANMonitor: React.FC<CANMonitorProps> = ({ 
@@ -24,7 +25,8 @@ const CANMonitor: React.FC<CANMonitorProps> = ({
   autoSaveEnabled = false,
   onToggleAutoSave,
   msgPerSec = 0,
-  onExportWideCsv
+  onExportWideCsv,
+  totalBufferCount
 }) => {
   const [autoScroll, setAutoScroll] = useState(true);
   const [isResetting, setIsResetting] = useState(false);
@@ -176,7 +178,7 @@ const CANMonitor: React.FC<CANMonitorProps> = ({
 
       <div className="bg-slate-50 px-3 md:px-6 py-1.5 border-t border-slate-200 flex flex-col sm:flex-row justify-between items-center text-[7px] md:text-[8px] font-orbitron font-black text-slate-400 uppercase shrink-0 z-[60] gap-1">
         <div className="flex flex-wrap gap-3 md:gap-6 justify-center items-center">
-          <span className="text-indigo-600 font-bold">{frames.length.toLocaleString()} BUFFER</span>
+          <span className="text-indigo-600 font-bold">{(totalBufferCount || frames.length).toLocaleString()} BUFFER</span>
           <span className="text-emerald-600 font-bold">{msgPerSec?.toLocaleString() || 0} MSG/SEC</span>
         </div>
         <div className="flex items-center gap-4">

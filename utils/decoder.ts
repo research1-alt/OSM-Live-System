@@ -15,39 +15,46 @@ export function cleanMessageName(name: string): string {
  * @param forceHex If true, treats numeric-only strings as Hex (used for Bus data).
  */
 export function normalizeId(id: string | number | undefined, forceHex: boolean = false): string {
-  if (id === undefined || id === null) return "";
+  if (id === undefined || id === null) return "0";
   
   let numericId = 0n;
   
-  if (typeof id === 'number') {
-    numericId = BigInt(id);
-  } else {
-    // Clean string: remove 0x, h suffix, and trim
-    let str = id.trim().toUpperCase();
-    if (str.endsWith('H')) {
-      str = str.substring(0, str.length - 1);
-      numericId = BigInt('0x' + str);
-    } else if (str.startsWith('0X')) {
-      numericId = BigInt('0x' + str.substring(2));
-    } else if (forceHex) {
-      // For hardware bus data, always assume Hex even if it looks decimal
-      try {
-        numericId = BigInt('0x' + str);
-      } catch (e) {
-        // Fallback for non-hex characters if any
-        return str;
-      }
-    } else if (/^\d+$/.test(str)) {
-      // For DBC/Library keys, if it's all digits, it's usually Decimal
-      numericId = BigInt(str);
+  try {
+    if (typeof id === 'number') {
+      numericId = BigInt(id);
     } else {
-      // Contains A-F, must be Hex
-      try {
+      // Clean string: remove 0x, h suffix, and trim
+      let str = id.trim().toUpperCase();
+      if (str.endsWith('H')) {
+        str = str.substring(0, str.length - 1);
         numericId = BigInt('0x' + str);
-      } catch (e) {
-        return str;
+      } else if (str.startsWith('0X')) {
+        numericId = BigInt('0x' + str.substring(2));
+      } else if (forceHex) {
+        // For hardware bus data, always assume Hex even if it looks decimal
+        try {
+          // Remove commas or spaces if they accidentally ended up in the ID string
+          const cleanHex = str.replace(/[, ]/g, '');
+          numericId = BigInt('0x' + cleanHex);
+        } catch (e) {
+          // Fallback for non-hex characters if any
+          return "0";
+        }
+      } else if (/^\d+$/.test(str)) {
+        // For DBC/Library keys, if it's all digits, it's usually Decimal
+        numericId = BigInt(str);
+      } else {
+        // Contains A-F, must be Hex
+        try {
+          const cleanHex = str.replace(/[, ]/g, '');
+          numericId = BigInt('0x' + cleanHex);
+        } catch (e) {
+          return "0";
+        }
       }
     }
+  } catch (e) {
+    return "0";
   }
 
   // MASK: 0x1FFFFFFF (29-bit). 
@@ -67,19 +74,24 @@ export function normalizeId(id: string | number | undefined, forceHex: boolean =
  * Expects a decimal string (from normalizeId).
  */
 export function formatIdForDisplay(id: string): string {
-  if (!id) return "";
-  const numeric = BigInt(id);
+  if (!id || id === "0") return "000";
   
-  // Strip the extended bit for display
-  const displayId = numeric & 0x1FFFFFFFn;
-  const hex = displayId.toString(16).toUpperCase();
-  
-  // Standard CAN is 0x7FF or less
-  if (displayId <= 0x7FFn) {
-    return hex.padStart(3, '0');
-  } else {
-    // Extended/J1939
-    return hex.padStart(8, '0');
+  try {
+    const numeric = BigInt(id);
+    
+    // Strip the extended bit for display
+    const displayId = numeric & 0x1FFFFFFFn;
+    const hex = displayId.toString(16).toUpperCase();
+    
+    // Standard CAN is 0x7FF or less
+    if (displayId <= 0x7FFn) {
+      return hex.padStart(3, '0');
+    } else {
+      // Extended/J1939
+      return hex.padStart(8, '0');
+    }
+  } catch (e) {
+    return "ERR";
   }
 }
 

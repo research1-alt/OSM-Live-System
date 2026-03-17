@@ -27,6 +27,11 @@
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
 
+    <!-- Background Service Permissions -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+
     <uses-feature android:name="android.hardware.usb.host" />
 
     <application
@@ -37,6 +42,14 @@
         android:supportsRtl="true"
         android:requestLegacyExternalStorage="true"
         android:theme="@style/Theme.AppCompat.Light.NoActionBar">
+
+        <!-- Background Service Declaration -->
+        <service 
+            android:name=".MainActivity$OSMBackgroundService" 
+            android:foregroundServiceType="connectedDevice"
+            android:enabled="true"
+            android:exported="false" />
+
         <activity
             android:name=".MainActivity"
             android:exported="true"

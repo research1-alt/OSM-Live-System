@@ -34,6 +34,7 @@ interface LiveDashboardProps {
   busSpeed?: number;
   onBusSpeedChange?: (speed: number) => void;
   showBufferWarning: boolean;
+  totalBufferCount: number;
   onCloseWarning: () => void;
   onExportWideCsv?: () => void;
   syncStatus?: 'idle' | 'syncing' | 'success' | 'error';
@@ -192,6 +193,7 @@ const LiveDashboard: React.FC<LiveDashboardProps> = (props) => {
                 onToggleAutoSave={props.onToggleAutoSave}
                 msgPerSec={props.msgPerSec}
                 onExportWideCsv={props.onExportWideCsv}
+                totalBufferCount={props.totalBufferCount}
               />
             </div>
 
@@ -256,7 +258,7 @@ const LiveDashboard: React.FC<LiveDashboardProps> = (props) => {
       </main>
       
       <div className="h-6 bg-slate-100 border-t flex items-center justify-between px-6 text-[8px] font-orbitron font-black text-slate-400 uppercase tracking-widest shrink-0">
-         <div className="flex gap-6"><span>{props.frames.length.toLocaleString()} Pkts_{props.isSimulated ? 'Sim' : 'Live'}</span><span>{props.isSimulated ? 'INTERNAL_EMULATOR' : 'BRIDGE_ACTIVE_LINK'}</span></div>
+         <div className="flex gap-6"><span>{props.totalBufferCount.toLocaleString()} Pkts_{props.isSimulated ? 'Sim' : 'Live'}</span><span>{props.isSimulated ? 'INTERNAL_EMULATOR' : 'BRIDGE_ACTIVE_LINK'}</span></div>
          <div className="flex items-center gap-2">HARDWARE_TELEMETRY_ENGINE</div>
       </div>
     </div>

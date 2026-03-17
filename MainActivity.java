@@ -71,15 +71,26 @@ import android.hardware.usb.UsbInterface;
 import android.hardware.usb.UsbManager;
 import java.util.HashMap;
 
+import android.app.Notification;
+import android.app.NotificationChannel;
+import android.app.NotificationManager;
+import android.app.PendingIntent;
+import android.app.Service;
+import android.os.IBinder;
+import android.os.PowerManager;
+import androidx.core.app.NotificationCompat;
+
 public class MainActivity extends AppCompatActivity {
 
     private WebView webView;
     private BluetoothAdapter bluetoothAdapter;
     private BluetoothLeScanner bluetoothLeScanner;
     private BluetoothGatt bluetoothGatt;
+    private PowerManager.WakeLock wakeLock;
     private static final int PERMISSION_REQUEST_CODE = 1234;
     private static final String TAG = "OSM_NATIVE_BLE";
-    private static final String CHANNEL_ID = "OSM_FILE_EXPORTS";
+    private static final String CHANNEL_ID = "OSM_LIVE_SERVICE";
+    private static final int NOTIFICATION_ID = 888;
 
     private static final UUID UART_SERVICE_UUID = UUID.fromString("6e400001-b5a3-f393-e0a9-e50e24dcca9e");
     private static final UUID HM10_SERVICE_UUID = UUID.fromString("0000ffe0-0000-1000-8000-00805f9b34fb");
@@ -218,9 +229,65 @@ public class MainActivity extends AppCompatActivity {
 
     private void createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            NotificationChannel channel = new NotificationChannel(CHANNEL_ID, "File Exports", NotificationManager.IMPORTANCE_DEFAULT);
-            getSystemService(NotificationManager.class).createNotificationChannel(channel);
+            NotificationChannel serviceChannel = new NotificationChannel(
+                    CHANNEL_ID,
+                    "OSM Live Background Service",
+                    NotificationManager.IMPORTANCE_LOW
+            );
+            serviceChannel.setDescription("Keeps the CAN link active during phone calls and background tasks.");
+            NotificationManager manager = getSystemService(NotificationManager.class);
+            if (manager != null) {
+                manager.createNotificationChannel(serviceChannel);
+            }
         }
+    }
+
+    private void startForegroundService() {
+        Intent serviceIntent = new Intent(this, OSMBackgroundService.class);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            startForegroundService(serviceIntent);
+        } else {
+            startService(serviceIntent);
+        }
+        
+        // Acquire WakeLock to keep CPU running
+        PowerManager powerManager = (PowerManager) getSystemService(POWER_SERVICE);
+        if (powerManager != null && (wakeLock == null || !wakeLock.isHeld())) {
+            wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "OSM:DataCollectionLock");
+            wakeLock.acquire(10 * 60 * 1000L /*10 minutes max per session or until disconnect*/);
+        }
+    }
+
+    private void stopForegroundService() {
+        Intent serviceIntent = new Intent(this, OSMBackgroundService.class);
+        stopService(serviceIntent);
+        
+        if (wakeLock != null && wakeLock.isHeld()) {
+            wakeLock.release();
+        }
+    }
+
+    // Inner class for the background service
+    public static class OSMBackgroundService extends Service {
+        @Override
+        public int onStartCommand(Intent intent, int flags, int startId) {
+            Intent notificationIntent = new Intent(this, MainActivity.class);
+            PendingIntent pendingIntent = PendingIntent.getActivity(this, 0, notificationIntent, PendingIntent.FLAG_IMMUTABLE);
+
+            Notification notification = new NotificationCompat.Builder(this, CHANNEL_ID)
+                    .setContentTitle("OSM Live Active")
+                    .setContentText("Collecting real-time CAN data...")
+                    .setSmallIcon(android.R.drawable.stat_notify_sync)
+                    .setContentIntent(pendingIntent)
+                    .setOngoing(true)
+                    .build();
+
+            startForeground(NOTIFICATION_ID, notification);
+            return START_STICKY;
+        }
+
+        @Override
+        public IBinder onBind(Intent intent) { return null; }
     }
 
     private void checkAndRequestPermissions() {
@@ -431,6 +498,9 @@ public class MainActivity extends AppCompatActivity {
                     startSerialReadThread();
                     evaluateJs("window.onNativeSerialStatus('connected', '')");
                     Log.d(TAG, "Serial Connected: " + usbDevice.getDeviceName() + " @ " + baudRate);
+                    
+                    // Start background service for USB Serial too
+                    startForegroundService();
 
                 } catch (Exception e) {
                     evaluateJs("window.onNativeSerialStatus('error', '" + e.getMessage() + "')");
@@ -442,6 +512,7 @@ public class MainActivity extends AppCompatActivity {
         public void disconnectSerial() {
             runOnUiThread(() -> {
                 cleanupSerial();
+                stopForegroundService();
                 evaluateJs("window.onNativeSerialStatus('disconnected', '')");
             });
         }
@@ -834,6 +905,9 @@ public class MainActivity extends AppCompatActivity {
                 isConnecting = false;
                 isConnected = true;
                 sendToJs("LINK: Handshake initiated.");
+                
+                // Start background service to prevent app from being killed
+                runOnUiThread(() -> startForegroundService());
 
                 if (ActivityCompat.checkSelfPermission(MainActivity.this, Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED) {
                     // Request high priority for better stability during discovery
@@ -860,6 +934,9 @@ public class MainActivity extends AppCompatActivity {
                 isConnected = false;
                 sendToJs("LINK: Terminated.");
                 evaluateJs("window.onNativeBleStatus('disconnected')");
+                
+                // Stop background service
+                runOnUiThread(() -> stopForegroundService());
                 if (ActivityCompat.checkSelfPermission(MainActivity.this, Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED) {
                     gatt.close();
                 }
