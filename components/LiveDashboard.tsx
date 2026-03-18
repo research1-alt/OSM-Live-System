@@ -39,6 +39,7 @@ interface LiveDashboardProps {
   syncStatus?: 'idle' | 'syncing' | 'success' | 'error';
   onManualSync?: () => void;
   isHwClockSynced?: boolean;
+  totalFramesCount?: number;
 }
 
 const LiveDashboard: React.FC<LiveDashboardProps> = (props) => {
@@ -172,11 +173,20 @@ const LiveDashboard: React.FC<LiveDashboardProps> = (props) => {
                 </div>
               </div>
               
-              <div className="flex items-center gap-2 px-3 py-1.5 bg-white rounded-xl border border-slate-200 shadow-sm">
-                <Sparkles size={12} className="text-indigo-500" />
-                <span className="text-[9px] font-orbitron font-black text-slate-600 uppercase tracking-widest">
-                  {props.msgPerSec?.toLocaleString() || 0} MSG/S
-                </span>
+              <div className="flex items-center gap-4">
+                <div className="flex items-center gap-2 px-3 py-1.5 bg-white rounded-xl border border-slate-200 shadow-sm">
+                  <Database size={12} className="text-indigo-500" />
+                  <span className="text-[9px] font-orbitron font-black text-slate-600 uppercase tracking-widest">
+                    {props.totalFramesCount?.toLocaleString() || 0} TRACE_BUF
+                  </span>
+                </div>
+                
+                <div className="flex items-center gap-2 px-3 py-1.5 bg-white rounded-xl border border-slate-200 shadow-sm">
+                  <Sparkles size={12} className="text-indigo-500" />
+                  <span className="text-[9px] font-orbitron font-black text-slate-600 uppercase tracking-widest">
+                    {props.msgPerSec?.toLocaleString() || 0} MSG/S
+                  </span>
+                </div>
               </div>
             </div>
 
@@ -192,40 +202,9 @@ const LiveDashboard: React.FC<LiveDashboardProps> = (props) => {
                 onToggleAutoSave={props.onToggleAutoSave}
                 msgPerSec={props.msgPerSec}
                 onExportWideCsv={props.onExportWideCsv}
+                totalFramesCount={props.totalFramesCount}
               />
             </div>
-
-            {/* Buffer Warning Banner - Non-blocking */}
-            {props.showBufferWarning && (
-              <div className="bg-amber-50 border-l-4 border-amber-500 p-4 rounded-xl flex items-center justify-between shadow-sm animate-in slide-in-from-top duration-300">
-                <div className="flex items-center gap-3">
-                  <div className="text-amber-600">
-                    <Database size={20} className="animate-pulse" />
-                  </div>
-                  <div>
-                    <h3 className="text-[10px] font-orbitron font-black text-amber-900 uppercase tracking-tight">Buffer Critical</h3>
-                    <p className="text-[9px] text-amber-700 font-medium">
-                      Trace buffer has reached 90% capacity. Save your log now to avoid data loss.
-                    </p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-2">
-                  <button 
-                    onClick={props.onSaveTrace}
-                    className="px-4 py-1.5 bg-amber-600 text-white rounded-lg text-[9px] font-orbitron font-black uppercase tracking-widest shadow-sm active:scale-95 transition-all hover:bg-amber-700 flex items-center gap-1.5"
-                  >
-                    <Save size={12} />
-                    Save Now
-                  </button>
-                  <button 
-                    onClick={props.onCloseWarning}
-                    className="p-1.5 text-amber-400 hover:text-amber-600 transition-colors"
-                  >
-                    <X size={16} />
-                  </button>
-                </div>
-              </div>
-            )}
           </div>
         )}
 
@@ -256,7 +235,11 @@ const LiveDashboard: React.FC<LiveDashboardProps> = (props) => {
       </main>
       
       <div className="h-6 bg-slate-100 border-t flex items-center justify-between px-6 text-[8px] font-orbitron font-black text-slate-400 uppercase tracking-widest shrink-0">
-         <div className="flex gap-6"><span>{props.frames?.length?.toLocaleString() || 0} Pkts_{props.isSimulated ? 'Sim' : 'Live'}</span><span>{props.isSimulated ? 'INTERNAL_EMULATOR' : 'BRIDGE_ACTIVE_LINK'}</span></div>
+         <div className="flex gap-6">
+           <span>{(props.totalFramesCount || props.frames?.length)?.toLocaleString() || 0} Total_Pkts_{props.isSimulated ? 'Sim' : 'Live'}</span>
+           <span>{props.frames?.length?.toLocaleString() || 0} View_Buffer</span>
+           <span>{props.isSimulated ? 'INTERNAL_EMULATOR' : 'BRIDGE_ACTIVE_LINK'}</span>
+         </div>
          <div className="flex items-center gap-2">HARDWARE_TELEMETRY_ENGINE</div>
       </div>
     </div>
