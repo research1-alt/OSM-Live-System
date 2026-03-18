@@ -362,48 +362,58 @@ const App: React.FC = () => {
 
   const exportWideCsv = useCallback(() => {
     if (allFramesRef.current.length === 0) return;
+    setIsSaving(true);
     
-    addDebugLog("EXPORT: Generating Wide-Format CSV...");
-    
-    // 1. Identify all unique signals in the library
-    const allSignals: string[] = [];
-    Object.values(library.database).forEach((msg: DBCMessage) => {
-      Object.keys(msg.signals).forEach(sigName => {
-        if (!allSignals.includes(sigName)) allSignals.push(sigName);
-      });
-    });
-    allSignals.sort();
-
-    // 2. Header
-    let csv = "Time(ms),Message,ID(Hex),DLC," + allSignals.join(",") + "\n";
-    
-    // 3. Last Known Values (LKV) map
-    const lkv: Record<string, string> = {};
-    allSignals.forEach(s => lkv[s] = "");
-
-    // 4. Process frames
-    const rows = allFramesRef.current.map(frame => {
-      const idHex = normalizeId(frame.id.replace('0x', ''), true);
-      const msg = library.database[idHex] as DBCMessage | undefined;
-      
-      if (msg) {
-        // Decode signals and update LKV
-        Object.entries(msg.signals).forEach(([name, sig]: [string, DBCSignal]) => {
-          const valStr = decodeSignal(frame.data, sig);
-          // Extract numeric part for CSV
-          const numericVal = parseFloat(valStr);
-          lkv[name] = isNaN(numericVal) ? "" : numericVal.toFixed(3);
+    setTimeout(() => {
+      try {
+        addDebugLog("EXPORT: Generating Wide-Format CSV...");
+        
+        // 1. Identify all unique signals in the library
+        const allSignals: string[] = [];
+        Object.values(library.database).forEach((msg: DBCMessage) => {
+          Object.keys(msg.signals).forEach(sigName => {
+            if (!allSignals.includes(sigName)) allSignals.push(sigName);
+          });
         });
+        allSignals.sort();
+
+        // 2. Header
+        let csv = "Time(ms),Message,ID(Hex),DLC," + allSignals.join(",") + "\n";
+        
+        // 3. Last Known Values (LKV) map
+        const lkv: Record<string, string> = {};
+        allSignals.forEach(s => lkv[s] = "");
+
+        // 4. Process frames
+        const rows = allFramesRef.current.map(frame => {
+          const idHex = normalizeId(frame.id.replace('0x', ''), true);
+          const msg = library.database[idHex] as DBCMessage | undefined;
+          
+          if (msg) {
+            // Decode signals and update LKV
+            Object.entries(msg.signals).forEach(([name, sig]: [string, DBCSignal]) => {
+              const valStr = decodeSignal(frame.data, sig);
+              // Extract numeric part for CSV
+              const numericVal = parseFloat(valStr);
+              lkv[name] = isNaN(numericVal) ? "" : numericVal.toFixed(3);
+            });
+          }
+
+          const signalValues = allSignals.map(s => lkv[s]).join(",");
+          return `${frame.timestamp.toFixed(3)},${msg?.name || 'Unknown'},${idHex},${frame.dlc},${signalValues}`;
+        });
+
+        csv += rows.join("\n");
+        
+        const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+        exportFile(csv, `OSM_WIDE_EXPORT_${stamp}.csv`, 'text/csv');
+      } catch (e) {
+        console.error(e);
+        addDebugLog("EXPORT_ERROR: Failed to generate Wide CSV.");
+      } finally {
+        setIsSaving(false);
       }
-
-      const signalValues = allSignals.map(s => lkv[s]).join(",");
-      return `${frame.timestamp.toFixed(3)},${msg?.name || 'Unknown'},${idHex},${frame.dlc},${signalValues}`;
-    });
-
-    csv += rows.join("\n");
-    
-    const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-    exportFile(csv, `OSM_WIDE_EXPORT_${stamp}.csv`, 'text/csv');
+    }, 50);
   }, [library, exportFile, addDebugLog]);
 
   const handleSaveTrace = useCallback(async (isAuto: boolean = false) => {

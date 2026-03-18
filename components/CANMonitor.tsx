@@ -44,28 +44,19 @@ const CANMonitor: React.FC<CANMonitorProps> = ({
   const VISIBLE_ROWS = 30;
 
   const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    setScrollTop(e.currentTarget.scrollTop);
+    // If user scrolls up, disable auto-scroll
     const { scrollHeight, clientHeight, scrollTop: currentScroll } = e.currentTarget;
-    setScrollTop(currentScroll);
-    
-    // If user scrolls up, disable auto-scroll. Use a larger threshold for mobile/momentum
-    const isAtBottom = scrollHeight - clientHeight - currentScroll < 100;
-    
-    if (isAtBottom !== autoScroll) {
-      setAutoScroll(isAtBottom);
-    }
+    const isAtBottom = scrollHeight - clientHeight - currentScroll < 50;
+    if (!isAtBottom) setAutoScroll(false);
+    else setAutoScroll(true);
   };
 
   useEffect(() => {
     if (autoScroll && !isPaused && scrollRef.current) {
-      const scrollContainer = scrollRef.current;
-      // Use a generous threshold to handle high-speed data bursts
-      const isNearBottom = scrollContainer.scrollHeight - scrollContainer.clientHeight - scrollContainer.scrollTop < 1000;
-      
-      if (isNearBottom) {
-        scrollContainer.scrollTop = scrollContainer.scrollHeight;
-      }
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
-  }, [frames.length, totalFramesCount, isPaused, autoScroll]);
+  }, [frames.length, isPaused, autoScroll]);
 
   const { startIndex, endIndex, translateY } = useMemo(() => {
     const start = Math.floor(scrollTop / ROW_HEIGHT);
@@ -129,11 +120,6 @@ const CANMonitor: React.FC<CANMonitorProps> = ({
         <div className="flex flex-wrap items-center gap-2 md:gap-4">
           <div className="flex items-center gap-1.5 px-2 py-1 bg-white rounded border border-slate-200 text-[8px] md:text-[9px] font-orbitron font-black text-indigo-600 shadow-sm">
             <Terminal size={10} /> <span className="hidden xs:inline">TRACE_HUD</span>
-          </div>
-
-          <div className="flex items-center gap-1.5 px-2 py-1 bg-indigo-50 rounded border border-indigo-100 text-[8px] md:text-[9px] font-orbitron font-black text-indigo-600 shadow-sm">
-            <Database size={10} /> 
-            <span>{(totalFramesCount || frames.length)?.toLocaleString() || 0} PKTS</span>
           </div>
 
           <button onClick={() => setTimeMode(timeMode === 'relative' ? 'absolute' : 'relative')} className="p-1.5 rounded-lg text-slate-600 bg-white border border-slate-200">
