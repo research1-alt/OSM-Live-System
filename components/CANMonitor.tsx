@@ -13,6 +13,7 @@ interface CANMonitorProps {
   onToggleAutoSave?: () => void;
   msgPerSec?: number;
   onExportWideCsv?: () => void;
+  totalFramesCount?: number;
 }
 
 const CANMonitor: React.FC<CANMonitorProps> = ({ 
@@ -24,7 +25,8 @@ const CANMonitor: React.FC<CANMonitorProps> = ({
   autoSaveEnabled = false,
   onToggleAutoSave,
   msgPerSec = 0,
-  onExportWideCsv
+  onExportWideCsv,
+  totalFramesCount = 0
 }) => {
   const [autoScroll, setAutoScroll] = useState(true);
   const [isResetting, setIsResetting] = useState(false);
@@ -42,19 +44,28 @@ const CANMonitor: React.FC<CANMonitorProps> = ({
   const VISIBLE_ROWS = 30;
 
   const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
-    setScrollTop(e.currentTarget.scrollTop);
-    // If user scrolls up, disable auto-scroll
     const { scrollHeight, clientHeight, scrollTop: currentScroll } = e.currentTarget;
-    const isAtBottom = scrollHeight - clientHeight - currentScroll < 50;
-    if (!isAtBottom) setAutoScroll(false);
-    else setAutoScroll(true);
+    setScrollTop(currentScroll);
+    
+    // If user scrolls up, disable auto-scroll. Use a larger threshold for mobile/momentum
+    const isAtBottom = scrollHeight - clientHeight - currentScroll < 100;
+    
+    if (isAtBottom !== autoScroll) {
+      setAutoScroll(isAtBottom);
+    }
   };
 
   useEffect(() => {
     if (autoScroll && !isPaused && scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+      const scrollContainer = scrollRef.current;
+      // Use a generous threshold to handle high-speed data bursts
+      const isNearBottom = scrollContainer.scrollHeight - scrollContainer.clientHeight - scrollContainer.scrollTop < 1000;
+      
+      if (isNearBottom) {
+        scrollContainer.scrollTop = scrollContainer.scrollHeight;
+      }
     }
-  }, [frames.length, isPaused, autoScroll]);
+  }, [frames.length, totalFramesCount, isPaused, autoScroll]);
 
   const { startIndex, endIndex, translateY } = useMemo(() => {
     const start = Math.floor(scrollTop / ROW_HEIGHT);
@@ -120,6 +131,11 @@ const CANMonitor: React.FC<CANMonitorProps> = ({
             <Terminal size={10} /> <span className="hidden xs:inline">TRACE_HUD</span>
           </div>
 
+          <div className="flex items-center gap-1.5 px-2 py-1 bg-indigo-50 rounded border border-indigo-100 text-[8px] md:text-[9px] font-orbitron font-black text-indigo-600 shadow-sm">
+            <Database size={10} /> 
+            <span>{(totalFramesCount || frames.length)?.toLocaleString() || 0} PKTS</span>
+          </div>
+
           <button onClick={() => setTimeMode(timeMode === 'relative' ? 'absolute' : 'relative')} className="p-1.5 rounded-lg text-slate-600 bg-white border border-slate-200">
             {timeMode === 'relative' ? <Timer size={12} /> : <Clock size={12} />}
           </button>
@@ -176,7 +192,8 @@ const CANMonitor: React.FC<CANMonitorProps> = ({
 
       <div className="bg-slate-50 px-3 md:px-6 py-1.5 border-t border-slate-200 flex flex-col sm:flex-row justify-between items-center text-[7px] md:text-[8px] font-orbitron font-black text-slate-400 uppercase shrink-0 z-[60] gap-1">
         <div className="flex flex-wrap gap-3 md:gap-6 justify-center items-center">
-          <span className="text-indigo-600 font-bold">{frames.length?.toLocaleString() || 0} BUFFER</span>
+          <span className="text-indigo-600 font-bold">{(totalFramesCount || frames.length)?.toLocaleString() || 0} TOTAL_PKTS</span>
+          <span className="text-slate-500 font-bold">{frames.length?.toLocaleString() || 0} VIEW_BUFFER</span>
           <span className="text-emerald-600 font-bold">{msgPerSec?.toLocaleString() || 0} MSG/SEC</span>
         </div>
         <div className="flex items-center gap-4">
