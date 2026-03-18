@@ -15,8 +15,8 @@ import { normalizeId, decodeSignal, formatIdForDisplay } from '@/utils/decoder';
 import { User, authService } from '@/services/authService';
 import { generateMockPacket } from '@/utils/canSim';
 
-const MAX_FRAME_LIMIT = 10000; 
-const MAX_ALL_FRAMES_LIMIT = 1000000; 
+const MAX_FRAME_LIMIT = 2000; 
+const MAX_ALL_FRAMES_LIMIT = 500000; 
 const BATCH_UPDATE_INTERVAL = 10; 
 const STALE_SIGNAL_TIMEOUT = 5000; 
 // Common BLE UART Service UUIDs
@@ -1480,10 +1480,11 @@ const App: React.FC = () => {
               busLoad={busLoad}
               busSpeed={busSpeed}
               onBusSpeedChange={setBusSpeed}
-              showBufferWarning={allFramesRef.current.length > (MAX_ALL_FRAMES_LIMIT * 0.9)}
+              showBufferWarning={false}
               onCloseWarning={() => {}}
               syncStatus={syncStatus}
               onManualSync={handleManualSync}
+              totalFramesCount={allFramesRef.current.length}
             />
           )}
         </div>
