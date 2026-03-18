@@ -31,12 +31,31 @@ const showBootError = (message: string, stack?: string) => {
 };
 
 window.onerror = function(message, source, lineno, colno, error) {
-  showBootError(String(message), error?.stack);
+  const msg = String(message);
+  const stack = error?.stack || "";
+
+  // Ignore Vite WebSocket errors which are expected in this environment
+  if (msg.includes('WebSocket') || stack.includes('vite/client')) {
+    console.warn('Ignoring expected Vite WebSocket error:', msg);
+    return false;
+  }
+
+  showBootError(msg, stack);
   return false;
 };
 
 window.onunhandledrejection = function(event) {
-  showBootError('Unhandled Promise Rejection', event.reason?.stack || String(event.reason));
+  const reason = event.reason;
+  const message = reason?.message || String(reason);
+  const stack = reason?.stack || "";
+
+  // Ignore Vite WebSocket errors which are expected in this environment
+  if (message.includes('WebSocket') || stack.includes('vite/client')) {
+    console.warn('Ignoring expected Vite WebSocket error:', message);
+    return;
+  }
+
+  showBootError('Unhandled Promise Rejection', stack || message);
 };
 
 const root = ReactDOM.createRoot(rootElement);
